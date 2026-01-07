@@ -1,37 +1,44 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"time"
+
+	"github.com/AaronLay10/SentientEngine/internal/config"
+	"github.com/AaronLay10/SentientEngine/internal/events"
 )
 
-type LogLine struct {
-	Timestamp string                 `json:"ts"`
-	Level     string                 `json:"level"`
-	Event     string                 `json:"event"`
-	Message   string                 `json:"msg,omitempty"`
-	Fields    map[string]interface{} `json:"fields,omitempty"`
-}
-
-func logEvent(level, event, msg string, fields map[string]interface{}) {
-	line := LogLine{
-		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-		Level:     level,
-		Event:     event,
-		Message:   msg,
-		Fields:    fields,
+func emit(level, event, msg string, fields map[string]interface{}) {
+	b, err := events.Emit(level, event, msg, fields)
+	if err != nil {
+		panic(err)
 	}
-	b, _ := json.Marshal(line)
 	fmt.Println(string(b))
 }
 
 func main() {
+	roomCfg, err := config.LoadRoomConfig("rooms/_template/room.yaml")
+	if err != nil {
+		emit("error", "system.error", "failed to load room.yaml", map[string]interface{}{
+			"error": err.Error(),
+		})
+		os.Exit(1)
+	}
+
+	_, err = config.LoadDevicesConfig("rooms/_template/devices.yaml")
+	if err != nil {
+		emit("error", "system.error", "failed to load devices.yaml", map[string]interface{}{
+			"error": err.Error(),
+		})
+		os.Exit(1)
+	}
+
 	hostname, _ := os.Hostname()
-	logEvent("info", "system.startup", "orchestrator starting", map[string]interface{}{
+	emit("info", "system.startup", "orchestrator starting", map[string]interface{}{
 		"service":  "orchestrator",
 		"hostname": hostname,
 		"pid":      os.Getpid(),
+		"room_id":  roomCfg.Room.ID,
+		"revision": roomCfg.Room.Revision,
 	})
 }
