@@ -11,16 +11,18 @@ import (
 	"github.com/AaronLay10/SentientEngine/internal/events"
 )
 
-// NodeValidator checks if a node exists in the active scene.
-type NodeValidator interface {
+// RuntimeController provides node validation and operator control.
+type RuntimeController interface {
 	HasNode(nodeID string) bool
+	OverrideNode(nodeID string) error
+	ResetNode(nodeID string) error
 }
 
-var nodeValidator NodeValidator
+var runtimeController RuntimeController
 
-// SetNodeValidator sets the validator used by operator endpoints.
-func SetNodeValidator(v NodeValidator) {
-	nodeValidator = v
+// SetRuntimeController sets the runtime used by operator endpoints.
+func SetRuntimeController(rc RuntimeController) {
+	runtimeController = rc
 }
 
 type HealthResponse struct {
@@ -78,15 +80,23 @@ func operatorOverrideHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if nodeValidator == nil || !nodeValidator.HasNode(req.NodeID) {
+	if runtimeController == nil || !runtimeController.HasNode(req.NodeID) {
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: "node not found"})
 		return
 	}
 
+	// Emit operator event
 	events.Emit("info", "operator.override", "", map[string]interface{}{
 		"node_id": req.NodeID,
 	})
+
+	// Apply override to runtime
+	if err := runtimeController.OverrideNode(req.NodeID); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: err.Error()})
+		return
+	}
 
 	_ = json.NewEncoder(w).Encode(OperatorResponse{OK: true})
 }
@@ -113,15 +123,23 @@ func operatorResetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if nodeValidator == nil || !nodeValidator.HasNode(req.NodeID) {
+	if runtimeController == nil || !runtimeController.HasNode(req.NodeID) {
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: "node not found"})
 		return
 	}
 
+	// Emit operator event
 	events.Emit("info", "operator.reset", "", map[string]interface{}{
 		"node_id": req.NodeID,
 	})
+
+	// Apply reset to runtime
+	if err := runtimeController.ResetNode(req.NodeID); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: err.Error()})
+		return
+	}
 
 	_ = json.NewEncoder(w).Encode(OperatorResponse{OK: true})
 }

@@ -52,8 +52,8 @@ func main() {
 		_ = rt.StartScene(sg.Scenes[0].ID)
 	}
 
-	// Register runtime with API for node validation
-	api.SetNodeValidator(rt)
+	// Register runtime with API for operator control
+	api.SetRuntimeController(rt)
 
 	// Start API server in goroutine (shares event buffer with orchestrator)
 	api.Start(roomCfg.UIPort())

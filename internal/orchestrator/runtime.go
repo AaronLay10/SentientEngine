@@ -176,7 +176,7 @@ func (r *Runtime) checkParallelCompletion() {
 			continue
 		}
 
-		// Check if all children are completed
+		// Check if all children are completed (or overridden)
 		childrenRaw, ok := node.Config["children"].([]interface{})
 		if !ok {
 			continue
@@ -185,7 +185,7 @@ func (r *Runtime) checkParallelCompletion() {
 		for _, child := range childrenRaw {
 			if childID, ok := child.(string); ok {
 				childStatus := r.nodeStates[childID]
-				if childStatus.State != NodeStateCompleted {
+				if childStatus.State != NodeStateCompleted && childStatus.State != NodeStateOverridden {
 					allComplete = false
 					break
 				}
@@ -298,4 +298,73 @@ func (r *Runtime) HasNode(nodeID string) bool {
 		return false
 	}
 	return r.findNode(nodeID) != nil
+}
+
+// OverrideNode forces a node to completed/overridden state.
+// For puzzle nodes, marks the puzzle as overridden and emits puzzle.overridden.
+// Triggers evaluation logic (loop stop, parallel join, edges).
+func (r *Runtime) OverrideNode(nodeID string) error {
+	if r.activeScene == nil {
+		return fmt.Errorf("no active scene")
+	}
+
+	node := r.findNode(nodeID)
+	if node == nil {
+		return fmt.Errorf("node not found: %s", nodeID)
+	}
+
+	status := r.nodeStates[nodeID]
+	if status.State == NodeStateCompleted || status.State == NodeStateOverridden {
+		return nil // already completed
+	}
+
+	// For puzzle nodes, mark puzzle as overridden
+	if node.Type == "puzzle" {
+		if ps, ok := r.puzzleStates[nodeID]; ok {
+			ps.Resolution = PuzzleOverridden
+		}
+		r.emitEvent("puzzle.overridden", map[string]interface{}{"node_id": nodeID})
+	}
+
+	// Mark node as overridden
+	status.State = NodeStateOverridden
+	r.emitEvent("node.overridden", map[string]interface{}{"node_id": nodeID})
+
+	// Emit node.completed (overridden counts as completed for flow)
+	r.emitEvent("node.completed", map[string]interface{}{"node_id": nodeID})
+
+	// Trigger evaluation logic
+	r.checkParallelCompletion()
+	r.evaluateAllConditions()
+
+	return nil
+}
+
+// ResetNode returns a node to active/waiting state.
+// For puzzle nodes, marks the puzzle as unresolved and emits puzzle.reset.
+func (r *Runtime) ResetNode(nodeID string) error {
+	if r.activeScene == nil {
+		return fmt.Errorf("no active scene")
+	}
+
+	node := r.findNode(nodeID)
+	if node == nil {
+		return fmt.Errorf("node not found: %s", nodeID)
+	}
+
+	status := r.nodeStates[nodeID]
+
+	// For puzzle nodes, mark puzzle as unresolved
+	if node.Type == "puzzle" {
+		if ps, ok := r.puzzleStates[nodeID]; ok {
+			ps.Resolution = PuzzleUnresolved
+		}
+		r.emitEvent("puzzle.reset", map[string]interface{}{"node_id": nodeID})
+	}
+
+	// Return node to active state
+	status.State = NodeStateActive
+	r.emitEvent("node.reset", map[string]interface{}{"node_id": nodeID})
+
+	return nil
 }
