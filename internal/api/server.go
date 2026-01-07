@@ -11,11 +11,14 @@ import (
 	"github.com/AaronLay10/SentientEngine/internal/events"
 )
 
-// RuntimeController provides node validation and operator control.
+// RuntimeController provides node validation, operator control, and game lifecycle.
 type RuntimeController interface {
 	HasNode(nodeID string) bool
 	OverrideNode(nodeID string) error
 	ResetNode(nodeID string) error
+	StartGame(sceneID string) error
+	StopGame() error
+	IsGameActive() bool
 }
 
 var runtimeController RuntimeController
@@ -144,6 +147,67 @@ func operatorResetHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(OperatorResponse{OK: true})
 }
 
+type GameStartRequest struct {
+	SceneID string `json:"scene_id"`
+}
+
+type GameResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+func gameStartHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(GameResponse{OK: false, Error: "method not allowed"})
+		return
+	}
+
+	if runtimeController == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(GameResponse{OK: false, Error: "runtime not available"})
+		return
+	}
+
+	var req GameStartRequest
+	// Allow empty body (optional scene_id)
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if err := runtimeController.StartGame(req.SceneID); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(GameResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(GameResponse{OK: true})
+}
+
+func gameStopHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(GameResponse{OK: false, Error: "method not allowed"})
+		return
+	}
+
+	if runtimeController == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(GameResponse{OK: false, Error: "runtime not available"})
+		return
+	}
+
+	if err := runtimeController.StopGame(); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(GameResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(GameResponse{OK: true})
+}
+
 // ListenAndServe starts the API server on the given port.
 // It blocks until the server exits.
 func ListenAndServe(port int) error {
@@ -152,6 +216,8 @@ func ListenAndServe(port int) error {
 	mux.HandleFunc("/events", eventsHandler)
 	mux.HandleFunc("/operator/override", operatorOverrideHandler)
 	mux.HandleFunc("/operator/reset", operatorResetHandler)
+	mux.HandleFunc("/game/start", gameStartHandler)
+	mux.HandleFunc("/game/stop", gameStopHandler)
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("API listening on %s\n", addr)

@@ -368,3 +368,50 @@ func (r *Runtime) ResetNode(nodeID string) error {
 
 	return nil
 }
+
+// StartGame starts a game session with the specified scene (or first scene if empty).
+func (r *Runtime) StartGame(sceneID string) error {
+	// If no scene specified, use first scene
+	if sceneID == "" {
+		if len(r.graph.Scenes) == 0 {
+			return fmt.Errorf("no scenes available")
+		}
+		sceneID = r.graph.Scenes[0].ID
+	}
+
+	// Reset state before starting
+	r.resetState()
+
+	// Start the scene
+	return r.StartScene(sceneID)
+}
+
+// StopGame stops the active game and resets runtime state.
+func (r *Runtime) StopGame() error {
+	if r.activeScene == nil {
+		return fmt.Errorf("no active game")
+	}
+
+	sceneID := r.activeScene.ID
+
+	// Emit scene.reset before clearing state
+	r.emitEvent("scene.reset", map[string]interface{}{"scene_id": sceneID})
+
+	// Reset all state
+	r.resetState()
+
+	return nil
+}
+
+// IsGameActive returns true if a game is currently running.
+func (r *Runtime) IsGameActive() bool {
+	return r.activeScene != nil
+}
+
+// resetState clears all runtime state.
+func (r *Runtime) resetState() {
+	r.activeScene = nil
+	r.nodeStates = make(map[string]*NodeStatus)
+	r.puzzleStates = make(map[string]*PuzzleStatus)
+	r.puzzleRuntimes = make(map[string]*PuzzleRuntime)
+}
