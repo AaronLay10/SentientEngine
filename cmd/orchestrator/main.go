@@ -24,8 +24,26 @@ func emit(level, event, msg string, fields map[string]interface{}) {
 	fmt.Println(string(b))
 }
 
+// configDir returns the config directory from SENTIENT_CONFIG_DIR or default.
+func configDir() string {
+	if dir := os.Getenv("SENTIENT_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	return "/config"
+}
+
+// sceneGraphPath returns the scene graph path from SENTIENT_SCENE_GRAPH_PATH or default.
+func sceneGraphPath() string {
+	if path := os.Getenv("SENTIENT_SCENE_GRAPH_PATH"); path != "" {
+		return path
+	}
+	return "/config/graphs/scene-graph.v1.json"
+}
+
 func main() {
-	roomCfg, err := config.LoadRoomConfig("rooms/_template/room.yaml")
+	cfgDir := configDir()
+
+	roomCfg, err := config.LoadRoomConfig(cfgDir + "/room.yaml")
 	if err != nil {
 		emit("error", "system.error", "failed to load room.yaml", map[string]interface{}{
 			"error": err.Error(),
@@ -33,7 +51,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	devCfg, err := config.LoadDevicesConfig("rooms/_template/devices.yaml")
+	devCfg, err := config.LoadDevicesConfig(cfgDir + "/devices.yaml")
 	if err != nil {
 		emit("error", "system.error", "failed to load devices.yaml", map[string]interface{}{
 			"error": err.Error(),
@@ -48,7 +66,7 @@ func main() {
 	}
 
 	// Load scene graph
-	sg, err := orchestrator.LoadSceneGraph("design/scene-graph/examples/mvp-scene-graph.v1.json")
+	sg, err := orchestrator.LoadSceneGraph(sceneGraphPath())
 	if err != nil {
 		emit("error", "system.error", "failed to load scene graph", map[string]interface{}{
 			"error": err.Error(),

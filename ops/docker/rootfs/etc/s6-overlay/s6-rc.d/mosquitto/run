@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+# Ensure persistence directory exists with correct ownership
+mkdir -p /data/mqtt
+chown -R mosquitto:mosquitto /data/mqtt
+
+# Ensure config directory exists
+mkdir -p /etc/mosquitto
+
+# Write mosquitto config
+cat > /etc/mosquitto/mosquitto.conf <<'CONF'
+listener 1883 0.0.0.0
+allow_anonymous true
+
+persistence true
+persistence_location /data/mqtt/
+persistence_file mosquitto.db
+
+log_type error
+log_type warning
+log_type notice
+CONF
+
+# Ensure mosquitto user can read config
+chown mosquitto:mosquitto /etc/mosquitto/mosquitto.conf
+chmod 644 /etc/mosquitto/mosquitto.conf
+
+# Run mosquitto as PID 1 for s6
+exec su-exec mosquitto mosquitto -c /etc/mosquitto/mosquitto.conf

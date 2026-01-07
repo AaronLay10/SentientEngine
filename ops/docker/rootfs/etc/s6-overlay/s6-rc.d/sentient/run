@@ -1,0 +1,19 @@
+#!/command/with-contenv /bin/bash
+set -e
+
+# Wait for postgres to be ready
+echo "Waiting for postgres..."
+until su-exec postgres pg_isready -h 127.0.0.1 -p 5432 -q; do
+    sleep 1
+done
+echo "Postgres is ready"
+
+# Wait for mosquitto to be ready
+echo "Waiting for mosquitto..."
+until nc -z 127.0.0.1 1883 2>/dev/null; do
+    sleep 1
+done
+echo "Mosquitto is ready"
+
+# Run orchestrator as PID 1 for s6
+exec /usr/local/bin/orchestrator

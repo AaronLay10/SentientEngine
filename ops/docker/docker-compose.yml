@@ -1,0 +1,31 @@
+# Sentient Engine V7 - Single Container Per Room
+# Example: Run one room instance locally
+#
+# Usage:
+#   docker compose up -d
+#
+# For multiple rooms, see README.md
+
+services:
+  room:
+    build:
+      context: ../..
+      dockerfile: ops/docker/Dockerfile
+    image: sentient-room:dev
+    container_name: sentient-room-template
+    ports:
+      - "8080:8080"   # API
+      - "1883:1883"   # MQTT
+      - "5432:5432"   # PostgreSQL
+    volumes:
+      - room-db:/data/db
+      - room-mqtt:/data/mqtt
+      - ../../rooms/_template:/config:ro
+    environment:
+      - SENTIENT_CONFIG_DIR=/config
+      - MQTT_URL=tcp://localhost:1883
+    restart: unless-stopped
+
+volumes:
+  room-db:
+  room-mqtt:

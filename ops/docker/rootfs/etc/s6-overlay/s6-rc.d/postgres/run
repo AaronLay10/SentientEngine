@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+# Initialize database if not exists
+if [ ! -f /data/db/PG_VERSION ]; then
+    su-exec postgres initdb -D /data/db
+    su-exec postgres pg_ctl -D /data/db -l /data/db/logfile -w start
+    su-exec postgres createuser -s sentient
+    su-exec postgres createdb -O sentient sentient
+    su-exec postgres pg_ctl -D /data/db stop -w
+fi
+
+# Run postgres as PID 1 for s6
+exec su-exec postgres postgres -D /data/db -c listen_addresses='*' -c port=5432
