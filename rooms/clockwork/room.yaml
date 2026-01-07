@@ -1,0 +1,21 @@
+version: 1
+
+room:
+  id: clockwork
+  revision: 1.0.0
+  name: Clockwork Manor
+  description: Victorian clockwork puzzle escape room
+
+ops:
+  timezone: America/Phoenix
+  default_game_minutes: 60
+  max_game_minutes: 90
+
+network:
+  ui_port: 8080
+  mqtt_port: 1883
+  db_port: 5432
+
+limits:
+  max_clients: 8
+  max_concurrent_actions: 32

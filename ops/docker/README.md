@@ -84,6 +84,53 @@ Each container:
 - Exposes different host ports
 - Mounts different room config directories
 
+## Two-Room Isolation Test
+
+Prove V7 isolation by running pharaohs and clockwork rooms simultaneously:
+
+```bash
+# Start both rooms
+./ops/docker/run-two-rooms.sh
+
+# Stop both rooms
+./ops/docker/stop-two-rooms.sh
+```
+
+### Port Mapping
+
+| Room      | API   | MQTT  | PostgreSQL |
+|-----------|-------|-------|------------|
+| pharaohs  | 8081  | 1884  | 5433       |
+| clockwork | 8082  | 1885  | 5434       |
+
+### Verify Isolation
+
+```bash
+# Check health
+curl http://localhost:8081/health   # pharaohs
+curl http://localhost:8082/health   # clockwork
+
+# Verify each room reports its own room_id and mqtt_connected=true
+curl -s http://localhost:8081/events | grep system.startup
+# => "room_id":"pharaohs"..."mqtt_connected":true
+
+curl -s http://localhost:8082/events | grep system.startup
+# => "room_id":"clockwork"..."mqtt_connected":true
+
+# Verify isolation: actions in one room don't affect the other
+# POST to pharaohs and check clockwork /events shows no change
+```
+
+### Cleanup
+
+```bash
+# Stop containers
+./ops/docker/stop-two-rooms.sh
+
+# Remove data volumes (deletes all data!)
+docker volume rm sentient_pharaohs_data sentient_clockwork_data
+```
+
 ## Using Docker Compose
 
 Quick start with template room:

@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "scenes": [
+    {
+      "id": "scene_intro",
+      "name": "Intro",
+      "entry": "start_parallel",
+      "nodes": [
+        {
+          "id": "start_parallel",
+          "type": "parallel",
+          "config": {
+            "children": ["puzzle_scarab", "puzzle_tiles", "loop_ambience"]
+          }
+        },
+        {
+          "id": "puzzle_scarab",
+          "type": "puzzle",
+          "config": {
+            "subgraph": "puzzle_scarab_v1",
+            "required": true
+          }
+        },
+        {
+          "id": "puzzle_tiles",
+          "type": "puzzle",
+          "config": {
+            "subgraph": "puzzle_tiles_v1",
+            "required": true
+          }
+        },
+        {
+          "id": "loop_ambience",
+          "type": "loop",
+          "config": {
+            "interval_ms": { "min": 1500, "max": 3500 },
+            "action": "fog.pulse",
+            "params": { "intensity": 0.6 },
+            "stop_condition": "puzzle_scarab.resolved && puzzle_tiles.resolved"
+          }
+        },
+        {
+          "id": "scene_complete",
+          "type": "terminal",
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "from": "start_parallel",
+          "to": "scene_complete",
+          "condition": "puzzle_scarab.resolved && puzzle_tiles.resolved"
+        }
+      ],
+      "subgraphs": [
+        {
+          "id": "puzzle_scarab_v1",
+          "entry": "scarab_start",
+          "nodes": [
+            { "id": "scarab_start", "type": "action", "config": { "action": "puzzle.init", "params": { "id": "scarab" } } },
+            { "id": "scarab_wait", "type": "decision", "config": { "expression": "event == 'puzzle.solved' && puzzle_id == 'scarab'" } },
+            { "id": "scarab_done", "type": "terminal", "config": {} }
+          ],
+          "edges": [
+            { "from": "scarab_start", "to": "scarab_wait", "condition": "event == 'node.completed'" },
+            { "from": "scarab_wait", "to": "scarab_done", "condition": "event == 'puzzle.solved' && puzzle_id == 'scarab'" }
+          ],
+          "outputs": {
+            "resolved_true_event": "puzzle.solved"
+          }
+        },
+        {
+          "id": "puzzle_tiles_v1",
+          "entry": "tiles_start",
+          "nodes": [
+            { "id": "tiles_start", "type": "action", "config": { "action": "puzzle.init", "params": { "id": "tiles" } } },
+            { "id": "tiles_wait", "type": "decision", "config": { "expression": "event == 'puzzle.solved' && puzzle_id == 'tiles'" } },
+            { "id": "tiles_done", "type": "terminal", "config": {} }
+          ],
+          "edges": [
+            { "from": "tiles_start", "to": "tiles_wait", "condition": "event == 'node.completed'" },
+            { "from": "tiles_wait", "to": "tiles_done", "condition": "event == 'puzzle.solved' && puzzle_id == 'tiles'" }
+          ],
+          "outputs": {
+            "resolved_true_event": "puzzle.solved"
+          }
+        }
+      ]
+    }
+  ]
+}

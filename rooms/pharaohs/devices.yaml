@@ -1,0 +1,12 @@
+version: 1
+
+devices:
+  example_device:
+    type: sensor
+    required: false
+    safety: none
+    capabilities:
+      - boolean
+    signals:
+      inputs:
+        - example_signal
