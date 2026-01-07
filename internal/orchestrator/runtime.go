@@ -291,3 +291,11 @@ func (r *Runtime) GetPuzzleResolution(nodeID string) PuzzleResolution {
 	}
 	return PuzzleUnresolved
 }
+
+// HasNode returns true if the node exists in the active scene.
+func (r *Runtime) HasNode(nodeID string) bool {
+	if r.activeScene == nil {
+		return false
+	}
+	return r.findNode(nodeID) != nil
+}

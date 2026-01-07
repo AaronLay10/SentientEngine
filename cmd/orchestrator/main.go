@@ -46,6 +46,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create runtime and start scene
+	rt := orchestrator.NewRuntime(sg)
+	if len(sg.Scenes) > 0 {
+		_ = rt.StartScene(sg.Scenes[0].ID)
+	}
+
+	// Register runtime with API for node validation
+	api.SetNodeValidator(rt)
+
 	// Start API server in goroutine (shares event buffer with orchestrator)
 	api.Start(roomCfg.UIPort())
 
@@ -59,9 +68,6 @@ func main() {
 		"scenes":   len(sg.Scenes),
 		"ui_port":  roomCfg.UIPort(),
 	})
-
-	// Create runtime (MVP: not starting scene yet, just proving load works)
-	_ = orchestrator.NewRuntime(sg)
 
 	// Wait for shutdown signal
 	sigCh := make(chan os.Signal, 1)
