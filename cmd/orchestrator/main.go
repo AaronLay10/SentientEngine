@@ -5,10 +5,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	paho "github.com/eclipse/paho.mqtt.golang"
 
 	"github.com/AaronLay10/SentientEngine/internal/api"
 	"github.com/AaronLay10/SentientEngine/internal/config"
 	"github.com/AaronLay10/SentientEngine/internal/events"
+	"github.com/AaronLay10/SentientEngine/internal/mqtt"
 	"github.com/AaronLay10/SentientEngine/internal/orchestrator"
 )
 
@@ -29,12 +33,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	_, err = config.LoadDevicesConfig("rooms/_template/devices.yaml")
+	devCfg, err := config.LoadDevicesConfig("rooms/_template/devices.yaml")
 	if err != nil {
 		emit("error", "system.error", "failed to load devices.yaml", map[string]interface{}{
 			"error": err.Error(),
 		})
 		os.Exit(1)
+	}
+
+	// Convert device config to specs for MQTT validation
+	deviceSpecs := make(map[string]mqtt.DeviceSpec)
+	for id, dev := range devCfg.Devices {
+		deviceSpecs[id] = mqtt.DeviceSpecFromConfig(dev.Type, dev.Required, dev.Capabilities)
 	}
 
 	// Load scene graph
@@ -58,19 +68,49 @@ func main() {
 	// Start API server in goroutine (shares event buffer with orchestrator)
 	api.Start(roomCfg.UIPort())
 
+	// Start MQTT controller registration monitor
+	monitor := mqtt.NewMonitor(deviceSpecs, 2.0) // 2x heartbeat tolerance
+	monitor.Start(5 * time.Second)               // Check health every 5s
+
+	mqttClient := mqtt.NewClient(roomCfg.Room.ID + "-orchestrator")
+	mqttConnected := mqttClient.StartWithRetry("sentient/registration/#", func(client paho.Client, msg paho.Message) {
+		payload, err := mqtt.ParseRegistration(msg.Payload())
+		if err != nil {
+			events.Emit("error", "device.error", "invalid registration payload", map[string]interface{}{
+				"topic": msg.Topic(),
+				"error": err.Error(),
+			})
+			return
+		}
+		monitor.HandleRegistration(payload)
+	})
+	if !mqttConnected {
+		emit("error", "system.error", "mqtt broker not reachable", map[string]interface{}{
+			"broker": mqtt.BrokerURL(),
+		})
+		// Continue running without MQTT per requirement
+	}
+
 	hostname, _ := os.Hostname()
 	emit("info", "system.startup", "orchestrator starting", map[string]interface{}{
-		"service":  "orchestrator",
-		"hostname": hostname,
-		"pid":      os.Getpid(),
-		"room_id":  roomCfg.Room.ID,
-		"revision": roomCfg.Room.Revision,
-		"scenes":   len(sg.Scenes),
-		"ui_port":  roomCfg.UIPort(),
+		"service":        "orchestrator",
+		"hostname":       hostname,
+		"pid":            os.Getpid(),
+		"room_id":        roomCfg.Room.ID,
+		"revision":       roomCfg.Room.Revision,
+		"scenes":         len(sg.Scenes),
+		"ui_port":        roomCfg.UIPort(),
+		"mqtt_connected": mqttConnected,
 	})
 
 	// Wait for shutdown signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
+
+	// Cleanup
+	monitor.Stop()
+	if mqttConnected {
+		mqttClient.Disconnect()
+	}
 }

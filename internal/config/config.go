@@ -30,9 +30,21 @@ func (c *RoomConfig) UIPort() int {
 	return c.Network.UIPort
 }
 
+// DeviceDefinition defines a device in devices.yaml.
+type DeviceDefinition struct {
+	Type         string   `yaml:"type"`
+	Required     bool     `yaml:"required"`
+	Safety       string   `yaml:"safety"`
+	Capabilities []string `yaml:"capabilities"`
+	Signals      struct {
+		Inputs  []string `yaml:"inputs"`
+		Outputs []string `yaml:"outputs"`
+	} `yaml:"signals"`
+}
+
 type DevicesConfig struct {
-	Version int                    `yaml:"version"`
-	Devices map[string]interface{} `yaml:"devices"`
+	Version int                         `yaml:"version"`
+	Devices map[string]DeviceDefinition `yaml:"devices"`
 }
 
 func LoadRoomConfig(path string) (*RoomConfig, error) {
