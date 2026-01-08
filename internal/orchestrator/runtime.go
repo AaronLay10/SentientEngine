@@ -435,3 +435,112 @@ func (r *Runtime) resetState() {
 func (r *Runtime) SetActionExecutor(executor ActionExecutorInterface) {
 	r.actionExecutor = executor
 }
+
+// ResetToNode resets the runtime to resume execution from the specified node.
+// This is a runtime checkpoint reset, NOT a startup restore.
+// It clears all downstream state and re-activates the target node.
+func (r *Runtime) ResetToNode(nodeID string) error {
+	if r.activeScene == nil {
+		return fmt.Errorf("no active session")
+	}
+
+	node := r.findNode(nodeID)
+	if node == nil {
+		return fmt.Errorf("node not found: %s", nodeID)
+	}
+
+	// Find all nodes reachable from the target node (downstream)
+	downstream := r.findDownstreamNodes(nodeID)
+
+	// Include the target node itself in the reset set
+	downstream[nodeID] = true
+
+	// Reset all downstream nodes
+	for nid := range downstream {
+		r.resetNodeState(nid)
+	}
+
+	// Re-activate the target node to resume execution
+	r.activateNode(nodeID)
+
+	return nil
+}
+
+// findDownstreamNodes returns all nodes reachable via edges from the given node.
+func (r *Runtime) findDownstreamNodes(startID string) map[string]bool {
+	downstream := make(map[string]bool)
+	visited := make(map[string]bool)
+	queue := []string{startID}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+
+		// Find edges from this node
+		for _, edge := range r.activeScene.Edges {
+			if edge.From == current && !visited[edge.To] {
+				downstream[edge.To] = true
+				queue = append(queue, edge.To)
+			}
+		}
+
+		// For parallel nodes, also include children as downstream
+		node := r.findNode(current)
+		if node != nil && node.Type == "parallel" {
+			if childrenRaw, ok := node.Config["children"].([]interface{}); ok {
+				for _, child := range childrenRaw {
+					if childID, ok := child.(string); ok {
+						if !visited[childID] {
+							downstream[childID] = true
+							queue = append(queue, childID)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return downstream
+}
+
+// resetNodeState resets a single node's state and emits appropriate events.
+func (r *Runtime) resetNodeState(nodeID string) {
+	node := r.findNode(nodeID)
+	if node == nil {
+		return
+	}
+
+	status := r.nodeStates[nodeID]
+	if status == nil {
+		return
+	}
+
+	// Skip if already idle
+	if status.State == NodeStateIdle {
+		return
+	}
+
+	// For active loops, emit loop.stopped
+	if node.Type == "loop" && status.State == NodeStateActive {
+		r.emitEvent("loop.stopped", map[string]interface{}{"node_id": nodeID})
+	}
+
+	// For puzzle nodes, clear puzzle state and runtime
+	if node.Type == "puzzle" {
+		if ps, ok := r.puzzleStates[nodeID]; ok {
+			ps.Resolution = PuzzleUnresolved
+		}
+		// Remove puzzle runtime to allow fresh re-execution
+		delete(r.puzzleRuntimes, nodeID)
+		r.emitEvent("puzzle.reset", map[string]interface{}{"node_id": nodeID})
+	}
+
+	// Reset node to idle
+	status.State = NodeStateIdle
+	r.emitEvent("node.reset", map[string]interface{}{"node_id": nodeID})
+}

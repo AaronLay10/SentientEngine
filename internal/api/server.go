@@ -17,6 +17,7 @@ type RuntimeController interface {
 	HasNode(nodeID string) bool
 	OverrideNode(nodeID string) error
 	ResetNode(nodeID string) error
+	ResetToNode(nodeID string) error
 	StartGame(sceneID string) error
 	StopGame() error
 	IsGameActive() bool
@@ -185,6 +186,62 @@ func operatorResetHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(OperatorResponse{OK: true})
 }
 
+func operatorResetNodeHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: "method not allowed"})
+		return
+	}
+
+	var req OperatorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: "invalid JSON"})
+		return
+	}
+
+	if req.NodeID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: "node_id required"})
+		return
+	}
+
+	if runtimeController == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: "runtime not available"})
+		return
+	}
+
+	if !runtimeController.IsGameActive() {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: "no active session"})
+		return
+	}
+
+	if !runtimeController.HasNode(req.NodeID) {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: "node not found"})
+		return
+	}
+
+	// Emit operator.reset event (registry-approved)
+	events.Emit("info", "operator.reset", "", map[string]interface{}{
+		"node_id": req.NodeID,
+		"action":  "reset_to_node",
+	})
+
+	// Apply reset-to-node to runtime
+	if err := runtimeController.ResetToNode(req.NodeID); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(OperatorResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(OperatorResponse{OK: true})
+}
+
 type GameStartRequest struct {
 	SceneID string `json:"scene_id"`
 }
@@ -255,6 +312,7 @@ func ListenAndServe(port int) error {
 	mux.HandleFunc("/events/db", eventsDBHandler)
 	mux.HandleFunc("/operator/override", operatorOverrideHandler)
 	mux.HandleFunc("/operator/reset", operatorResetHandler)
+	mux.HandleFunc("/operator/reset-node", operatorResetNodeHandler)
 	mux.HandleFunc("/game/start", gameStartHandler)
 	mux.HandleFunc("/game/stop", gameStopHandler)
 	mux.HandleFunc("/ws/events", wsEventsHandler)

@@ -734,3 +734,256 @@ func TestTemplateScarabDeviceInput(t *testing.T) {
 		t.Error("expected puzzle.solved event for puzzle_scarab")
 	}
 }
+
+// TestResetToNode tests the operator checkpoint reset functionality.
+func TestResetToNode(t *testing.T) {
+	events.Clear()
+
+	sg, err := LoadSceneGraph("../../design/scene-graph/examples/mvp-scene-graph.v1.json")
+	if err != nil {
+		t.Fatalf("failed to load scene graph: %v", err)
+	}
+
+	rt := NewRuntime(sg)
+
+	// Start scene
+	if err := rt.StartGame("scene_intro"); err != nil {
+		t.Fatalf("failed to start game: %v", err)
+	}
+
+	// Solve puzzle_scarab via puzzle.solved event (MVP graph uses this)
+	rt.InjectEvent("puzzle.solved", map[string]interface{}{
+		"puzzle_id": "scarab",
+	})
+
+	// Verify puzzle_scarab is solved
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleSolved {
+		t.Fatalf("expected puzzle_scarab to be solved")
+	}
+	if rt.GetNodeState("puzzle_scarab") != NodeStateCompleted {
+		t.Fatalf("expected puzzle_scarab node to be completed")
+	}
+
+	events.Clear()
+
+	// Reset to puzzle_scarab - should reset it and allow re-execution
+	if err := rt.ResetToNode("puzzle_scarab"); err != nil {
+		t.Fatalf("ResetToNode failed: %v", err)
+	}
+
+	// Verify puzzle_scarab is reset and re-activated
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleUnresolved {
+		t.Errorf("expected puzzle_scarab to be unresolved after reset, got %v", rt.GetPuzzleResolution("puzzle_scarab"))
+	}
+	if rt.GetNodeState("puzzle_scarab") != NodeStateActive {
+		t.Errorf("expected puzzle_scarab to be active after reset, got %v", rt.GetNodeState("puzzle_scarab"))
+	}
+
+	// Verify appropriate events were emitted
+	snapshot := events.Snapshot()
+	hasNodeReset := false
+	hasPuzzleReset := false
+	hasNodeStarted := false
+
+	for _, e := range snapshot {
+		if e.Name == "node.reset" {
+			if nodeID, ok := e.Fields["node_id"].(string); ok && nodeID == "puzzle_scarab" {
+				hasNodeReset = true
+			}
+		}
+		if e.Name == "puzzle.reset" {
+			if nodeID, ok := e.Fields["node_id"].(string); ok && nodeID == "puzzle_scarab" {
+				hasPuzzleReset = true
+			}
+		}
+		if e.Name == "node.started" {
+			if nodeID, ok := e.Fields["node_id"].(string); ok && nodeID == "puzzle_scarab" {
+				hasNodeStarted = true
+			}
+		}
+	}
+
+	if !hasNodeReset {
+		t.Error("expected node.reset event for puzzle_scarab")
+	}
+	if !hasPuzzleReset {
+		t.Error("expected puzzle.reset event for puzzle_scarab")
+	}
+	if !hasNodeStarted {
+		t.Error("expected node.started event for puzzle_scarab after reset")
+	}
+
+	// Verify NO system.startup or restore events emitted
+	for _, e := range snapshot {
+		if e.Name == "system.startup" || e.Name == "system.startup_restore" {
+			t.Errorf("unexpected restore event during runtime reset: %s", e.Name)
+		}
+	}
+}
+
+// TestResetToNodeDownstream verifies downstream nodes are reset.
+func TestResetToNodeDownstream(t *testing.T) {
+	events.Clear()
+
+	sg, err := LoadSceneGraph("../../design/scene-graph/examples/mvp-scene-graph.v1.json")
+	if err != nil {
+		t.Fatalf("failed to load scene graph: %v", err)
+	}
+
+	rt := NewRuntime(sg)
+
+	// Start scene
+	if err := rt.StartGame("scene_intro"); err != nil {
+		t.Fatalf("failed to start game: %v", err)
+	}
+
+	// Solve both puzzles to complete the scene (MVP graph uses puzzle.solved events)
+	rt.InjectEvent("puzzle.solved", map[string]interface{}{
+		"puzzle_id": "scarab",
+	})
+
+	rt.InjectEvent("puzzle.solved", map[string]interface{}{
+		"puzzle_id": "tiles",
+	})
+
+	// Verify scene is completed
+	if rt.GetNodeState("scene_complete") != NodeStateCompleted {
+		t.Fatalf("expected scene_complete to be completed")
+	}
+
+	events.Clear()
+
+	// Reset to start_parallel - should reset all downstream nodes
+	if err := rt.ResetToNode("start_parallel"); err != nil {
+		t.Fatalf("ResetToNode failed: %v", err)
+	}
+
+	// Verify start_parallel is active again
+	if rt.GetNodeState("start_parallel") != NodeStateActive {
+		t.Errorf("expected start_parallel to be active, got %v", rt.GetNodeState("start_parallel"))
+	}
+
+	// Verify child puzzles are reset and active
+	if rt.GetNodeState("puzzle_scarab") != NodeStateActive {
+		t.Errorf("expected puzzle_scarab to be active after downstream reset, got %v", rt.GetNodeState("puzzle_scarab"))
+	}
+	if rt.GetNodeState("puzzle_tiles") != NodeStateActive {
+		t.Errorf("expected puzzle_tiles to be active after downstream reset, got %v", rt.GetNodeState("puzzle_tiles"))
+	}
+
+	// Verify puzzles are unresolved
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleUnresolved {
+		t.Errorf("expected puzzle_scarab to be unresolved, got %v", rt.GetPuzzleResolution("puzzle_scarab"))
+	}
+	if rt.GetPuzzleResolution("puzzle_tiles") != PuzzleUnresolved {
+		t.Errorf("expected puzzle_tiles to be unresolved, got %v", rt.GetPuzzleResolution("puzzle_tiles"))
+	}
+
+	// Verify scene_complete was reset to idle
+	if rt.GetNodeState("scene_complete") != NodeStateIdle {
+		t.Errorf("expected scene_complete to be idle after reset, got %v", rt.GetNodeState("scene_complete"))
+	}
+}
+
+// TestResetToNodeIdempotent verifies reset is idempotent.
+func TestResetToNodeIdempotent(t *testing.T) {
+	events.Clear()
+
+	sg, err := LoadSceneGraph("../../design/scene-graph/examples/mvp-scene-graph.v1.json")
+	if err != nil {
+		t.Fatalf("failed to load scene graph: %v", err)
+	}
+
+	rt := NewRuntime(sg)
+
+	if err := rt.StartGame("scene_intro"); err != nil {
+		t.Fatalf("failed to start game: %v", err)
+	}
+
+	// Reset to already-active puzzle_scarab
+	if err := rt.ResetToNode("puzzle_scarab"); err != nil {
+		t.Fatalf("first ResetToNode failed: %v", err)
+	}
+
+	// Reset again - should be idempotent
+	if err := rt.ResetToNode("puzzle_scarab"); err != nil {
+		t.Fatalf("second ResetToNode failed: %v", err)
+	}
+
+	// Puzzle should still be active and unresolved
+	if rt.GetNodeState("puzzle_scarab") != NodeStateActive {
+		t.Errorf("expected puzzle_scarab to be active after idempotent reset")
+	}
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleUnresolved {
+		t.Errorf("expected puzzle_scarab to be unresolved after idempotent reset")
+	}
+}
+
+// TestResetToNodeNoActiveSession verifies error when no session is active.
+func TestResetToNodeNoActiveSession(t *testing.T) {
+	sg, err := LoadSceneGraph("../../design/scene-graph/examples/mvp-scene-graph.v1.json")
+	if err != nil {
+		t.Fatalf("failed to load scene graph: %v", err)
+	}
+
+	rt := NewRuntime(sg)
+
+	// No session started - should error
+	err = rt.ResetToNode("puzzle_scarab")
+	if err == nil {
+		t.Error("expected error when resetting with no active session")
+	}
+}
+
+// TestResetToNodeCanReExecute verifies that reset nodes can be re-executed.
+func TestResetToNodeCanReExecute(t *testing.T) {
+	events.Clear()
+
+	sg, err := LoadSceneGraph("../../rooms/_template/graphs/scene-graph.v1.json")
+	if err != nil {
+		t.Fatalf("failed to load scene graph: %v", err)
+	}
+
+	rt := NewRuntime(sg)
+
+	if err := rt.StartGame("scene_intro"); err != nil {
+		t.Fatalf("failed to start game: %v", err)
+	}
+
+	// Solve puzzle via device.input
+	rt.InjectEvent("device.input", map[string]interface{}{
+		"controller_id": "ctrl-001",
+		"logical_id":    "crypt_door",
+		"topic":         "devices/ctrl-001/crypt_door/events",
+		"payload": map[string]interface{}{
+			"door_closed": true,
+		},
+	})
+
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleSolved {
+		t.Fatalf("expected puzzle_scarab to be solved first time")
+	}
+
+	// Reset to puzzle_scarab
+	if err := rt.ResetToNode("puzzle_scarab"); err != nil {
+		t.Fatalf("ResetToNode failed: %v", err)
+	}
+
+	// Solve puzzle again
+	rt.InjectEvent("device.input", map[string]interface{}{
+		"controller_id": "ctrl-001",
+		"logical_id":    "crypt_door",
+		"topic":         "devices/ctrl-001/crypt_door/events",
+		"payload": map[string]interface{}{
+			"door_closed": true,
+		},
+	})
+
+	// Verify puzzle is solved again
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleSolved {
+		t.Errorf("expected puzzle_scarab to be solved after re-execution, got %v", rt.GetPuzzleResolution("puzzle_scarab"))
+	}
+	if rt.GetNodeState("puzzle_scarab") != NodeStateCompleted {
+		t.Errorf("expected puzzle_scarab node to be completed after re-execution, got %v", rt.GetNodeState("puzzle_scarab"))
+	}
+}
