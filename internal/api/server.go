@@ -258,6 +258,7 @@ func ListenAndServe(port int) error {
 	mux.HandleFunc("/game/start", gameStartHandler)
 	mux.HandleFunc("/game/stop", gameStopHandler)
 	mux.HandleFunc("/ws/events", wsEventsHandler)
+	mux.HandleFunc("/ui", uiHandler)
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("API listening on %s\n", addr)
