@@ -125,6 +125,7 @@ scrape_configs:
 |----------|-------------|---------|
 | `SENTIENT_ALERT_WEBHOOK_URL` | Webhook URL for alerts | (none - alerts logged only) |
 | `SENTIENT_MQTT_ALERT_DELAY` | Duration before MQTT disconnect alert | `30s` |
+| `SENTIENT_POSTGRES_ALERT_DELAY` | Duration before PostgreSQL disconnect alert | `5s` |
 
 ### Alert Events
 
@@ -367,3 +368,237 @@ docker exec sentient-pharaohs /usr/sbin/mosquitto -d -c /etc/mosquitto/mosquitto
 - No secrets are exposed in metrics or alert payloads
 - Alert webhook failures are logged but never block or crash the system
 - Consider network policies to restrict `/metrics` access in production
+
+---
+
+## Operator Runbook
+
+This section provides step-by-step guidance for responding to alerts.
+
+### Alert: mqtt_disconnected
+
+**Severity:** Warning
+
+**Meaning:** The MQTT broker inside the room container has been unreachable for longer than the configured delay (default 30s). Device communication is impaired.
+
+**Immediate Impact:**
+- Physical devices cannot send inputs to the orchestrator
+- Device commands from the orchestrator will not be delivered
+- Game progression may stall if waiting for device inputs
+
+**Diagnostic Steps:**
+
+```bash
+# 1. Check container health
+curl http://<room-ip>:<port>/ready
+# Look for: "mqtt":{"status":"not_ready"}
+
+# 2. Check if mosquitto is running inside container
+docker exec sentient-<room> ps aux | grep mosquitto
+
+# 3. Check mosquitto logs
+docker logs sentient-<room> 2>&1 | grep -i mosquitto | tail -20
+
+# 4. Check if port 1883 is listening inside container
+docker exec sentient-<room> netstat -tlnp | grep 1883
+```
+
+**Likely Causes:**
+1. Mosquitto process crashed
+2. Mosquitto configuration error
+3. Resource exhaustion (memory/CPU)
+4. s6-overlay supervisor issue
+
+**Resolution Steps:**
+
+```bash
+# Option 1: Restart mosquitto service
+docker exec sentient-<room> /usr/sbin/mosquitto -d -c /etc/mosquitto/mosquitto.conf
+
+# Option 2: Restart the entire container
+docker restart sentient-<room>
+
+# Option 3: Full room restart via ops scripts
+./ops/docker/stop-room.sh <room>
+./ops/docker/start-room.sh <room> <api_port> <mqtt_port> <pg_port>
+```
+
+**Verification:**
+```bash
+# Confirm MQTT reconnected
+curl -s http://<room-ip>:<port>/metrics | grep sentient_mqtt_connected
+# Should show: sentient_mqtt_connected{...} 1
+
+# Confirm ready status
+curl http://<room-ip>:<port>/ready
+# Should show: "mqtt":{"status":"ok"}
+```
+
+---
+
+### Alert: postgres_unavailable
+
+**Severity:** Critical
+
+**Meaning:** The PostgreSQL database inside the room container is unreachable. Event persistence and state recovery are impaired.
+
+**Immediate Impact:**
+- Events are NOT being persisted to database
+- State cannot be recovered after restart
+- Historical event queries will fail
+- The room can still operate (events buffered in memory) but data may be lost
+
+**Diagnostic Steps:**
+
+```bash
+# 1. Check container health
+curl http://<room-ip>:<port>/ready
+# Look for: "postgres":{"status":"not_ready"} or {"status":"unavailable"}
+
+# 2. Check if postgres is running
+docker exec sentient-<room> ps aux | grep postgres
+
+# 3. Check postgres logs
+docker logs sentient-<room> 2>&1 | grep -iE "(postgres|FATAL|ERROR)" | tail -20
+
+# 4. Test database connectivity
+docker exec sentient-<room> pg_isready -U sentient
+
+# 5. Check disk space (postgres may fail if disk full)
+docker exec sentient-<room> df -h /data
+```
+
+**Likely Causes:**
+1. PostgreSQL process crashed
+2. Disk full (/data volume)
+3. Database corruption
+4. OOM killer terminated postgres
+5. Configuration error
+
+**Resolution Steps:**
+
+```bash
+# Option 1: Check and restart postgres
+docker exec sentient-<room> pg_isready -U sentient
+# If not ready, restart container
+
+# Option 2: Restart container
+docker restart sentient-<room>
+
+# Option 3: Check disk space and clean up if needed
+docker exec sentient-<room> du -sh /data/*
+# If disk full, consider increasing volume size or cleaning old data
+
+# Option 4: Full restart with volume inspection
+docker stop sentient-<room>
+docker run --rm -v sentient_<room>_data:/data alpine ls -la /data/db/
+# Check for corruption indicators, then restart
+./ops/docker/start-room.sh <room> <ports...>
+```
+
+**Verification:**
+```bash
+# Confirm postgres connected
+curl -s http://<room-ip>:<port>/metrics | grep sentient_postgres_connected
+# Should show: sentient_postgres_connected{...} 1
+
+# Confirm database is queryable
+docker exec sentient-<room> psql -U sentient -d sentient -c "SELECT COUNT(*) FROM events;"
+```
+
+**Data Recovery:**
+If postgres corruption is suspected:
+```bash
+# 1. Stop container
+docker stop sentient-<room>
+
+# 2. Restore from backup
+./ops/backup/restore-room.sh <room> /path/to/backup.tar.gz
+```
+
+---
+
+### Alert De-duplication
+
+The alerting system prevents spam:
+- Only ONE alert is sent when a condition triggers
+- Alert is NOT re-sent while the condition persists
+- A recovery alert (severity: info) is sent when the condition clears
+
+Example sequence:
+1. MQTT disconnects at T+0
+2. Alert fires at T+30s (after delay)
+3. MQTT stays down for 5 minutes - no additional alerts
+4. MQTT reconnects at T+5:30
+5. Recovery alert fires immediately
+
+---
+
+### Testing Alerts
+
+Use the provided test script to validate alerting:
+
+```bash
+./ops/observability/test-alerts.sh <room_name> [api_port]
+
+# Example:
+./ops/observability/test-alerts.sh pharaohs 8081
+```
+
+Or manually test with a webhook receiver:
+
+```bash
+# Terminal 1: Start webhook receiver
+python3 << 'EOF'
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import json
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers['Content-Length']))
+        print(json.dumps(json.loads(body), indent=2))
+        self.send_response(200)
+        self.end_headers()
+
+HTTPServer(('0.0.0.0', 9000), Handler).serve_forever()
+EOF
+
+# Terminal 2: Start room with webhook
+docker run -d --name sentient-test \
+    -e SENTIENT_ALERT_WEBHOOK_URL=http://host.docker.internal:9000/alert \
+    -e SENTIENT_MQTT_ALERT_DELAY=10s \
+    ...
+
+# Terminal 3: Trigger alert
+docker exec sentient-test mv /usr/sbin/mosquitto /usr/sbin/mosquitto.disabled
+docker exec sentient-test pkill mosquitto
+# Wait 15s, check Terminal 1 for alert
+```
+
+---
+
+### Escalation Path
+
+If alerts persist after following the runbook:
+
+1. **Collect diagnostics:**
+   ```bash
+   docker logs sentient-<room> > room-logs.txt 2>&1
+   docker inspect sentient-<room> > room-inspect.json
+   curl -s http://<ip>:<port>/metrics > room-metrics.txt
+   curl -s http://<ip>:<port>/events > room-events.json
+   ```
+
+2. **Check system resources:**
+   ```bash
+   docker stats sentient-<room> --no-stream
+   df -h
+   free -m
+   ```
+
+3. **Review recent changes:**
+   - Configuration updates
+   - Docker image updates
+   - System updates
+
+4. **Contact support** with collected diagnostics

@@ -36,13 +36,15 @@ type AlertPayload struct {
 
 // AlertConfig holds alert configuration.
 type AlertConfig struct {
-	WebhookURL          string
-	MQTTDisconnectDelay time.Duration // How long MQTT must be disconnected before alerting
+	WebhookURL              string
+	MQTTDisconnectDelay     time.Duration // How long MQTT must be disconnected before alerting
+	PostgresDisconnectDelay time.Duration // How long Postgres must be disconnected before alerting
 }
 
 var (
 	alertConfig = &AlertConfig{
-		MQTTDisconnectDelay: 30 * time.Second,
+		MQTTDisconnectDelay:     30 * time.Second,
+		PostgresDisconnectDelay: 5 * time.Second,
 	}
 	alertMu sync.Mutex
 
@@ -70,8 +72,16 @@ func InitAlerts() {
 		}
 	}
 
+	// Optional: custom Postgres disconnect delay
+	if delayStr := os.Getenv("SENTIENT_POSTGRES_ALERT_DELAY"); delayStr != "" {
+		if d, err := time.ParseDuration(delayStr); err == nil {
+			alertConfig.PostgresDisconnectDelay = d
+		}
+	}
+
 	if alertConfig.WebhookURL != "" {
-		log.Printf("Alerts enabled: webhook URL configured")
+		log.Printf("Alerts enabled: webhook URL configured (mqtt_delay=%s, pg_delay=%s)",
+			alertConfig.MQTTDisconnectDelay, alertConfig.PostgresDisconnectDelay)
 	}
 
 	// Initialize state tracking
@@ -213,16 +223,24 @@ func CheckAndAlertPostgres(connected bool) {
 
 	// Not connected
 	if lastKnownPostgresState {
-		// Just became disconnected - alert immediately for Postgres
+		// Just became disconnected
 		postgresDisconnectedAt = now
-		postgresAlertSent = true
-		go SendAlert(AlertPostgresUnavailable, SeverityCritical,
-			"PostgreSQL unavailable",
-			map[string]interface{}{
-				"disconnected_at": now.UTC().Format(time.RFC3339),
-			})
 	}
 	lastKnownPostgresState = false
+
+	// Check if disconnected long enough to alert
+	if !postgresAlertSent && !postgresDisconnectedAt.IsZero() {
+		disconnectedDuration := now.Sub(postgresDisconnectedAt)
+		if disconnectedDuration >= alertConfig.PostgresDisconnectDelay {
+			postgresAlertSent = true
+			go SendAlert(AlertPostgresUnavailable, SeverityCritical,
+				"PostgreSQL unavailable",
+				map[string]interface{}{
+					"disconnected_since":   postgresDisconnectedAt.UTC().Format(time.RFC3339),
+					"disconnected_seconds": int(disconnectedDuration.Seconds()),
+				})
+		}
+	}
 }
 
 // StartAlertMonitor starts a background goroutine that periodically checks connection states.

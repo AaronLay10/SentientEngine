@@ -134,6 +134,12 @@ func main() {
 	monitor.Start(5 * time.Second)               // Check health every 5s
 
 	mqttClient := mqtt.NewClient(roomCfg.Room.ID + "-orchestrator")
+
+	// Register callback to update API state on connection changes
+	mqttClient.SetConnectionCallback(func(connected bool) {
+		api.SetMQTTState(connected, false)
+	})
+
 	mqttConnected := mqttClient.StartWithRetry("sentient/registration/#", func(client paho.Client, msg paho.Message) {
 		payload, err := mqtt.ParseRegistration(msg.Payload())
 		if err != nil {

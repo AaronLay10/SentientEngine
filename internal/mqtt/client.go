@@ -9,10 +9,14 @@ import (
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
 
+// ConnectionCallback is called when connection state changes.
+type ConnectionCallback func(connected bool)
+
 // Client wraps the Paho MQTT client for Sentient Engine.
 type Client struct {
-	client paho.Client
-	mu     sync.Mutex
+	client             paho.Client
+	mu                 sync.Mutex
+	connectionCallback ConnectionCallback
 }
 
 // BrokerURL returns the MQTT broker URL from env or default.
@@ -25,17 +29,37 @@ func BrokerURL() string {
 
 // NewClient creates a new MQTT client but does not connect.
 func NewClient(clientID string) *Client {
+	c := &Client{}
+
 	opts := paho.NewClientOptions().
 		AddBroker(BrokerURL()).
 		SetClientID(clientID).
 		SetAutoReconnect(true).
 		SetConnectRetry(true).
 		SetConnectRetryInterval(5 * time.Second).
-		SetKeepAlive(30 * time.Second)
+		SetKeepAlive(30 * time.Second).
+		SetConnectionLostHandler(func(_ paho.Client, err error) {
+			log.Printf("mqtt: connection lost: %v", err)
+			if c.connectionCallback != nil {
+				c.connectionCallback(false)
+			}
+		}).
+		SetOnConnectHandler(func(_ paho.Client) {
+			log.Printf("mqtt: connected to %s", BrokerURL())
+			if c.connectionCallback != nil {
+				c.connectionCallback(true)
+			}
+		})
 
-	return &Client{
-		client: paho.NewClient(opts),
-	}
+	c.client = paho.NewClient(opts)
+	return c
+}
+
+// SetConnectionCallback sets a callback to be notified of connection state changes.
+func (c *Client) SetConnectionCallback(cb ConnectionCallback) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connectionCallback = cb
 }
 
 // Connect attempts to connect to the broker.
