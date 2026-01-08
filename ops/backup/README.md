@@ -271,6 +271,129 @@ Example cloud upload in cron:
 0 3 * * * aws s3 sync /backups/sentient s3://my-bucket/sentient-backups/ --exclude "*" --include "*.tar.gz"
 ```
 
+## Offsite Backup Sync
+
+The `sync-offsite.sh` script provides rsync-based synchronization of backup archives to offsite locations. This is optional but recommended for disaster recovery.
+
+### sync-offsite.sh
+
+Efficiently syncs backup archives to remote storage using rsync.
+
+### Usage
+
+```bash
+./sync-offsite.sh <source_dir> <target> [options]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `source_dir` | Local directory containing backup archives |
+| `target` | Rsync target (local path, SSH, or rsync URL) |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Preview what would be transferred |
+| `--delete` | Remove files from target not in source |
+| `--bwlimit=KBPS` | Limit bandwidth (KB/s) |
+| `--ssh-key=PATH` | SSH private key for auth |
+| `--ssh-port=PORT` | SSH port (default: 22) |
+| `--include=PATTERN` | File pattern (default: `*.tar.gz`) |
+| `--quiet` | Suppress progress output |
+
+### Environment Variables
+
+Configure defaults via environment variables:
+
+```bash
+export SENTIENT_OFFSITE_TARGET=user@backup-server:/backups/sentient
+export SENTIENT_OFFSITE_SSH_KEY=/home/techadmin/.ssh/backup_key
+export SENTIENT_OFFSITE_BWLIMIT=1000  # 1 MB/s
+```
+
+### Examples
+
+```bash
+# Sync to SSH remote
+./sync-offsite.sh /backups/sentient user@backup-server:/backups/sentient
+
+# Sync with bandwidth limit (500 KB/s)
+./sync-offsite.sh /backups/sentient user@host:/backups --bwlimit=500
+
+# Dry run to preview
+./sync-offsite.sh /backups/sentient /mnt/nas/backups --dry-run
+
+# Sync and remove old files from target
+./sync-offsite.sh /backups/sentient rsync://server/backups --delete
+
+# Use environment variable for target
+export SENTIENT_OFFSITE_TARGET=user@backup:/backups
+./sync-offsite.sh /backups/sentient
+```
+
+### Automated Offsite Sync
+
+Add to cron after nightly backups:
+
+```cron
+# Sync to offsite after backup completes (3:00 AM)
+0 3 * * * /home/techadmin/sentient-engine/ops/backup/sync-offsite.sh /backups/sentient user@offsite:/backups --quiet >> /var/log/sentient-offsite.log 2>&1
+```
+
+Or use a systemd timer:
+
+**Service** (`/etc/systemd/system/sentient-offsite-sync.service`):
+```ini
+[Unit]
+Description=Sync Sentient backups to offsite storage
+After=sentient-backup@pharaohs.service
+
+[Service]
+Type=oneshot
+User=techadmin
+Environment=SENTIENT_OFFSITE_TARGET=user@backup:/backups/sentient
+ExecStart=/home/techadmin/sentient-engine/ops/backup/sync-offsite.sh /backups/sentient
+StandardOutput=journal
+StandardError=journal
+```
+
+**Timer** (`/etc/systemd/system/sentient-offsite-sync.timer`):
+```ini
+[Unit]
+Description=Daily offsite backup sync
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+### Offsite Target Examples
+
+| Target Type | Example |
+|-------------|---------|
+| SSH | `user@host:/path/to/backups` |
+| SSH with port | `user@host:/path` with `--ssh-port=2222` |
+| Local/NFS mount | `/mnt/offsite-nas/backups` |
+| Rsync daemon | `rsync://server/module` |
+
+### Bandwidth Management
+
+For WAN connections, limit bandwidth to avoid saturating the link:
+
+```bash
+# 1 MB/s limit
+./sync-offsite.sh /backups/sentient user@host:/backups --bwlimit=1000
+
+# 500 KB/s limit for slow connections
+./sync-offsite.sh /backups/sentient user@host:/backups --bwlimit=500
+```
+
 ## Troubleshooting
 
 ### Backup fails with "Container does not exist"
