@@ -120,8 +120,14 @@ func main() {
 	// Register runtime with API for operator control
 	api.SetRuntimeController(rt)
 
+	// Set room name for metrics and alerts
+	api.SetRoomName(roomCfg.Room.Name)
+
 	// Start API server in goroutine with graceful shutdown support
 	apiServer := api.StartServer(roomCfg.UIPort())
+
+	// Start alert monitor (checks MQTT/Postgres state periodically)
+	api.StartAlertMonitor(10 * time.Second)
 
 	// Start MQTT controller registration monitor
 	monitor := mqtt.NewMonitor(deviceSpecs, 2.0) // 2x heartbeat tolerance

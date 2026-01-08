@@ -430,15 +430,18 @@ func gameStopHandler(w http.ResponseWriter, r *http.Request) {
 // NewServer creates a configured HTTP server without starting it.
 // Returns the server for graceful shutdown control.
 func NewServer(port int) *http.Server {
-	// Initialize auth and TLS from environment variables
+	// Initialize auth, TLS, metrics, and alerts from environment variables
 	InitAuth()
 	InitTLS()
+	InitMetrics()
+	InitAlerts()
 
 	mux := http.NewServeMux()
 
 	// Public endpoints (no auth)
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/ready", readyHandler)
+	mux.HandleFunc("/metrics", metricsHandler)
 	mux.HandleFunc("/events", eventsHandler)
 	mux.HandleFunc("/events/db", eventsDBHandler)
 

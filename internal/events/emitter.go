@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AaronLay10/SentientEngine/internal/storage/postgres"
 )
 
 var buffer = NewRingBuffer(256)
+
+// eventsTotal tracks the total number of events emitted since startup.
+var eventsTotal uint64
 
 var (
 	pgClient      *postgres.Client
@@ -54,6 +58,7 @@ func Emit(level, name, msg string, fields map[string]interface{}) ([]byte, error
 	}
 
 	buffer.Add(e)
+	atomic.AddUint64(&eventsTotal, 1)
 
 	// Broadcast to WebSocket subscribers
 	broadcast(e)
@@ -107,4 +112,9 @@ func Snapshot() []Event {
 // Clear resets the event buffer. Used for testing.
 func Clear() {
 	buffer.Clear()
+}
+
+// TotalCount returns the total number of events emitted since startup.
+func TotalCount() uint64 {
+	return atomic.LoadUint64(&eventsTotal)
 }
