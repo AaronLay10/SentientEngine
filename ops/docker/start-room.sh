@@ -23,6 +23,13 @@ echo "▶ Starting room: $ROOM_NAME"
 
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
+# Build env args for auth (only if set)
+ENV_ARGS=""
+[ -n "${SENTIENT_ADMIN_USER:-}" ] && ENV_ARGS="$ENV_ARGS -e SENTIENT_ADMIN_USER=$SENTIENT_ADMIN_USER"
+[ -n "${SENTIENT_ADMIN_PASS:-}" ] && ENV_ARGS="$ENV_ARGS -e SENTIENT_ADMIN_PASS=$SENTIENT_ADMIN_PASS"
+[ -n "${SENTIENT_OPERATOR_USER:-}" ] && ENV_ARGS="$ENV_ARGS -e SENTIENT_OPERATOR_USER=$SENTIENT_OPERATOR_USER"
+[ -n "${SENTIENT_OPERATOR_PASS:-}" ] && ENV_ARGS="$ENV_ARGS -e SENTIENT_OPERATOR_PASS=$SENTIENT_OPERATOR_PASS"
+
 docker run -d \
   --name "$CONTAINER" \
   -p "${API_PORT}:8080" \
@@ -30,6 +37,7 @@ docker run -d \
   -p "${PG_PORT}:5432" \
   -v "${DATA_VOLUME}:/data" \
   -v "${CONFIG_DIR}:/config" \
+  $ENV_ARGS \
   "$IMAGE"
 
 echo "✅ Room '$ROOM_NAME' started"
