@@ -51,6 +51,49 @@ in the binary at build time and reported via:
 | `1.x.0` | Minor releases (new features, backward compatible) |
 | `x.0.0` | Major releases (breaking changes) |
 
+## Automated Releases (CI/CD)
+
+Releases are automated via GitHub Actions. Pushing a `v*` tag triggers the release workflow which:
+
+1. Runs `go test ./...` (fails if tests fail)
+2. Builds the Docker image with version metadata injected
+3. Pushes to GHCR as `ghcr.io/aaronlay10/sentient-room:<version>` and `:latest`
+
+### Cutting a New Release
+
+```bash
+# Create and push a version tag
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+The workflow automatically:
+- Extracts version from the tag (strips `v` prefix)
+- Injects `VERSION`, `GIT_COMMIT`, and `BUILD_DATE` build args
+- Authenticates to GHCR using `GITHUB_TOKEN` (no manual login required)
+
+### Release Workflow Location
+
+```
+.github/workflows/release.yml
+```
+
+### Pulling Released Images
+
+```bash
+# Pull specific version
+docker pull ghcr.io/aaronlay10/sentient-room:1.0.1
+
+# Pull latest
+docker pull ghcr.io/aaronlay10/sentient-room:latest
+```
+
+### Workflow Requirements
+
+- Only triggers on `v*` tags (not branches or other commits)
+- Tests must pass before image is built
+- Repository must have `write:packages` permission for `GITHUB_TOKEN`
+
 ## Build
 
 From repository root:
