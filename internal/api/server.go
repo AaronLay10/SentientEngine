@@ -422,18 +422,27 @@ func gameStopHandler(w http.ResponseWriter, r *http.Request) {
 // NewServer creates a configured HTTP server without starting it.
 // Returns the server for graceful shutdown control.
 func NewServer(port int) *http.Server {
+	// Initialize auth from environment variables
+	InitAuth()
+
 	mux := http.NewServeMux()
+
+	// Public endpoints (no auth)
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/ready", readyHandler)
 	mux.HandleFunc("/events", eventsHandler)
 	mux.HandleFunc("/events/db", eventsDBHandler)
-	mux.HandleFunc("/operator/override", operatorOverrideHandler)
-	mux.HandleFunc("/operator/reset", operatorResetHandler)
-	mux.HandleFunc("/operator/reset-node", operatorResetNodeHandler)
-	mux.HandleFunc("/game/start", gameStartHandler)
-	mux.HandleFunc("/game/stop", gameStopHandler)
-	mux.HandleFunc("/ws/events", wsEventsHandler)
-	mux.HandleFunc("/ui", uiHandler)
+
+	// Protected endpoints (admin OR operator)
+	mux.HandleFunc("/operator/override", RequireAnyRole(operatorOverrideHandler))
+	mux.HandleFunc("/operator/reset", RequireAnyRole(operatorResetHandler))
+	mux.HandleFunc("/operator/reset-node", RequireAnyRole(operatorResetNodeHandler))
+	mux.HandleFunc("/ws/events", RequireAnyRole(wsEventsHandler))
+	mux.HandleFunc("/ui", RequireAnyRole(uiHandler))
+
+	// Admin-only endpoints
+	mux.HandleFunc("/game/start", RequireAdmin(gameStartHandler))
+	mux.HandleFunc("/game/stop", RequireAdmin(gameStopHandler))
 
 	return &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
