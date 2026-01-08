@@ -100,3 +100,8 @@ func Emit(level, name, msg string, fields map[string]interface{}) ([]byte, error
 func Snapshot() []Event {
 	return buffer.Snapshot()
 }
+
+// Clear resets the event buffer. Used for testing.
+func Clear() {
+	buffer.Clear()
+}

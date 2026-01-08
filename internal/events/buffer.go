@@ -41,3 +41,12 @@ func (rb *RingBuffer) Snapshot() []Event {
 	out = append(out, rb.events[:rb.index]...)
 	return out
 }
+
+// Clear resets the buffer to empty state.
+func (rb *RingBuffer) Clear() {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+	rb.events = make([]Event, rb.size)
+	rb.index = 0
+	rb.full = false
+}

@@ -92,8 +92,8 @@ func main() {
 	// Create runtime
 	rt := orchestrator.NewRuntime(sg)
 
-	// Restore state from Postgres if connected
-	var restored bool
+	// Restore state from Postgres if connected (active session only)
+	// If no active session found, runtime stays idle until /game/start
 	if pgConnected {
 		state, count, err := orchestrator.RestoreFromEvents(pgClient, roomCfg.Room.ID, orchestrator.DefaultRestoreLimit)
 		if err != nil {
@@ -101,18 +101,14 @@ func main() {
 				"error": err.Error(),
 			})
 		} else if state != nil {
-			// Active session found - restore it
+			// Active session found - restore it (no new scene.started emitted)
 			if err := rt.ApplyRestoredState(state); err == nil {
-				restored = true
 				orchestrator.EmitStartupRestore(count, roomCfg.Room.ID)
 			}
 		}
+		// If state == nil, no active session - remain idle until /game/start
 	}
-
-	// Start fresh scene only if no state was restored
-	if !restored && len(sg.Scenes) > 0 {
-		_ = rt.StartScene(sg.Scenes[0].ID)
-	}
+	// If postgres not connected, remain idle until /game/start
 
 	// Register runtime with API for operator control
 	api.SetRuntimeController(rt)
