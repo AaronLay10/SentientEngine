@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"log"
+
 	"github.com/AaronLay10/SentientEngine/internal/events"
 	"github.com/AaronLay10/SentientEngine/internal/storage/postgres"
 )
@@ -17,6 +19,7 @@ type RestoredState struct {
 
 // RestoreFromEvents loads events from Postgres and reconstructs minimal runtime state.
 // Returns nil if no relevant state was found or if client is nil.
+// Session is considered active if there is a scene.started without a later scene.reset.
 func RestoreFromEvents(client *postgres.Client, roomID string, limit int) (*RestoredState, int, error) {
 	if client == nil {
 		return nil, 0, nil
@@ -35,7 +38,7 @@ func RestoreFromEvents(client *postgres.Client, roomID string, limit int) (*Rest
 		return nil, 0, nil
 	}
 
-	// Reverse to chronological order (Query returns DESC)
+	// Reverse to chronological order (Query returns DESC by timestamp)
 	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 		rows[i], rows[j] = rows[j], rows[i]
 	}
@@ -44,47 +47,82 @@ func RestoreFromEvents(client *postgres.Client, roomID string, limit int) (*Rest
 		PuzzleStates: make(map[string]PuzzleResolution),
 	}
 
+	// Process events in chronological order to determine final state
 	for _, row := range rows {
 		switch row.Event {
 		case "scene.started":
+			// Scene started - session becomes active
 			state.SessionActive = true
 			if sceneID, ok := row.Fields["scene_id"].(string); ok {
 				state.SceneID = sceneID
 			}
+			// Clear puzzle states when a new scene starts
+			state.PuzzleStates = make(map[string]PuzzleResolution)
 
 		case "scene.reset":
+			// Scene reset - session becomes inactive
 			state.SessionActive = false
 			state.SceneID = ""
-			// Clear puzzle states on scene reset
 			state.PuzzleStates = make(map[string]PuzzleResolution)
 
 		case "puzzle.solved":
-			if nodeID, ok := row.Fields["node_id"].(string); ok {
+			// Puzzle was solved
+			nodeID := extractNodeID(row.Fields)
+			if nodeID != "" {
 				state.PuzzleStates[nodeID] = PuzzleSolved
-			} else if puzzleID, ok := row.Fields["puzzle_id"].(string); ok {
-				// Fallback: puzzle_id field used in some events
-				state.PuzzleStates[puzzleID] = PuzzleSolved
 			}
 
 		case "puzzle.overridden":
-			if nodeID, ok := row.Fields["node_id"].(string); ok {
+			// Puzzle was overridden (via operator action)
+			nodeID := extractNodeID(row.Fields)
+			if nodeID != "" {
+				state.PuzzleStates[nodeID] = PuzzleOverridden
+			}
+
+		case "operator.override":
+			// Operator override - marks puzzle as overridden
+			nodeID := extractNodeID(row.Fields)
+			if nodeID != "" {
 				state.PuzzleStates[nodeID] = PuzzleOverridden
 			}
 
 		case "puzzle.reset":
-			if nodeID, ok := row.Fields["node_id"].(string); ok {
+			// Puzzle was reset - returns to unresolved
+			nodeID := extractNodeID(row.Fields)
+			if nodeID != "" {
 				state.PuzzleStates[nodeID] = PuzzleUnresolved
 			}
 
-		case "operator.override":
-			if nodeID, ok := row.Fields["node_id"].(string); ok {
-				// operator.override on a puzzle marks it overridden
-				state.PuzzleStates[nodeID] = PuzzleOverridden
+		case "operator.reset":
+			// Operator reset - returns puzzle to unresolved
+			nodeID := extractNodeID(row.Fields)
+			if nodeID != "" {
+				state.PuzzleStates[nodeID] = PuzzleUnresolved
 			}
 		}
 	}
 
+	log.Printf("[restore] processed %d events: session_active=%v scene_id=%q puzzles=%d",
+		len(rows), state.SessionActive, state.SceneID, len(state.PuzzleStates))
+
+	// Only return state if session is active with a valid scene
+	if !state.SessionActive || state.SceneID == "" {
+		return nil, len(rows), nil
+	}
+
 	return state, len(rows), nil
+}
+
+// extractNodeID extracts node_id from event fields, trying multiple field names.
+func extractNodeID(fields map[string]interface{}) string {
+	if nodeID, ok := fields["node_id"].(string); ok {
+		return nodeID
+	}
+	// Fallback for puzzle events that might use puzzle_id
+	if puzzleID, ok := fields["puzzle_id"].(string); ok {
+		return puzzleID
+	}
+	return ""
 }
 
 // ApplyRestoredState applies restored state to the runtime.
@@ -102,6 +140,7 @@ func (r *Runtime) ApplyRestoredState(state *RestoredState) error {
 		}
 	}
 	if r.activeScene == nil {
+		log.Printf("[restore] scene not found: %s", state.SceneID)
 		return nil
 	}
 
@@ -134,9 +173,11 @@ func (r *Runtime) ApplyRestoredState(state *RestoredState) error {
 					ns.State = NodeStateOverridden
 				}
 			}
+			log.Printf("[restore] applied puzzle state: %s -> %s", nodeID, resolution)
 		}
 	}
 
+	log.Printf("[restore] restored scene %s with %d puzzle states", state.SceneID, len(state.PuzzleStates))
 	return nil
 }
 

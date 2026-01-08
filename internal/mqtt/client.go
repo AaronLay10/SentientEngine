@@ -66,6 +66,18 @@ func (c *Client) Subscribe(topic string, handler paho.MessageHandler) error {
 	return token.Error()
 }
 
+// Publish publishes a message to the specified topic.
+func (c *Client) Publish(topic string, payload []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	token := c.client.Publish(topic, 1, false, payload)
+	if !token.WaitTimeout(10 * time.Second) {
+		return &PublishTimeoutError{Topic: topic}
+	}
+	return token.Error()
+}
+
 // Disconnect cleanly disconnects from the broker.
 func (c *Client) Disconnect() {
 	c.mu.Lock()
@@ -93,6 +105,15 @@ type SubscribeTimeoutError struct {
 
 func (e *SubscribeTimeoutError) Error() string {
 	return "mqtt subscribe timeout: " + e.Topic
+}
+
+// PublishTimeoutError indicates publish timed out.
+type PublishTimeoutError struct {
+	Topic string
+}
+
+func (e *PublishTimeoutError) Error() string {
+	return "mqtt publish timeout: " + e.Topic
 }
 
 // StartWithRetry attempts to connect and subscribe, logging errors but not crashing.
