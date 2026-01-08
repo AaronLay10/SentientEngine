@@ -9,13 +9,18 @@ import (
 	"github.com/AaronLay10/SentientEngine/internal/events"
 )
 
+// DeviceInputHandler is called when a device.input event is received.
+// The handler receives the event name and fields for routing to the runtime.
+type DeviceInputHandler func(eventName string, fields map[string]interface{})
+
 // DeviceSubscriber manages subscriptions to device event topics.
 // It ensures idempotent subscription handling across reconnects.
 type DeviceSubscriber struct {
-	mu          sync.RWMutex
-	client      *Client
-	registry    *DeviceRegistry
-	subscribed  map[string]bool // topic -> subscribed
+	mu           sync.RWMutex
+	client       *Client
+	registry     *DeviceRegistry
+	subscribed   map[string]bool // topic -> subscribed
+	inputHandler DeviceInputHandler
 }
 
 // NewDeviceSubscriber creates a new device subscriber.
@@ -25,6 +30,14 @@ func NewDeviceSubscriber(client *Client, registry *DeviceRegistry) *DeviceSubscr
 		registry:   registry,
 		subscribed: make(map[string]bool),
 	}
+}
+
+// SetInputHandler sets the callback for device.input events.
+// This allows routing device input to the puzzle runtime.
+func (s *DeviceSubscriber) SetInputHandler(handler DeviceInputHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inputHandler = handler
 }
 
 // SubscribeDevice subscribes to a device's event topic if not already subscribed.
@@ -81,12 +94,23 @@ func (s *DeviceSubscriber) createHandler(controllerID, logicalID, topic string) 
 			payload = string(msg.Payload())
 		}
 
-		events.Emit("info", "device.input", "", map[string]interface{}{
+		fields := map[string]interface{}{
 			"controller_id": controllerID,
 			"logical_id":    logicalID,
 			"topic":         topic,
 			"payload":       payload,
-		})
+		}
+
+		// Emit device.input event for logging/persistence
+		events.Emit("info", "device.input", "", fields)
+
+		// Route to puzzle runtime if handler is set
+		s.mu.RLock()
+		handler := s.inputHandler
+		s.mu.RUnlock()
+		if handler != nil {
+			handler("device.input", fields)
+		}
 	}
 }
 

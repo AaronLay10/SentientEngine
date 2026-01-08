@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +24,8 @@ type Event struct {
 //   - "<nodeID>.resolved && <nodeID>.resolved" (AND of two puzzle resolved checks)
 //   - "event == '<eventName>'" (event name check)
 //   - "event == '<eventName>' && <field> == '<value>'" (event name + field check)
+//   - "logical_id == '<device_id>'" (device ID check for device.input)
+//   - "payload.<field> == '<value>'" (nested payload field check for device.input)
 func EvalCondition(expr string, ctx *EvalContext) bool {
 	expr = strings.TrimSpace(expr)
 
@@ -60,22 +63,68 @@ func EvalCondition(expr string, ctx *EvalContext) bool {
 		return ctx.Event.Name == expected
 	}
 
-	// Pattern: <field> == '<value>' (for event field checks like puzzle_id == 'scarab')
+	// Pattern: <field> == '<value>' (for event field checks)
+	// Supports nested fields like "payload.signal" for device.input events
 	if strings.Contains(expr, "==") {
 		field, value := parseFieldEquality(expr)
 		if field == "" || ctx.Event == nil || ctx.Event.Fields == nil {
 			return false
 		}
-		if v, ok := ctx.Event.Fields[field]; ok {
-			if strVal, ok := v.(string); ok {
-				return strVal == value
-			}
-		}
-		return false
+		fieldValue := getNestedField(ctx.Event.Fields, field)
+		return matchValue(fieldValue, value)
 	}
 
 	// Unknown pattern - return false
 	return false
+}
+
+// getNestedField retrieves a value from nested maps using dot notation.
+// Example: getNestedField(fields, "payload.signal") returns fields["payload"]["signal"]
+func getNestedField(fields map[string]interface{}, path string) interface{} {
+	parts := strings.Split(path, ".")
+	var current interface{} = fields
+
+	for _, part := range parts {
+		if m, ok := current.(map[string]interface{}); ok {
+			current = m[part]
+		} else {
+			return nil
+		}
+	}
+	return current
+}
+
+// matchValue compares an interface value against a string target.
+// Handles string, bool, and numeric types.
+func matchValue(v interface{}, target string) bool {
+	if v == nil {
+		return false
+	}
+	switch val := v.(type) {
+	case string:
+		return val == target
+	case bool:
+		return (val && target == "true") || (!val && target == "false")
+	case float64:
+		// JSON numbers are float64
+		return strings.TrimSpace(target) == strings.TrimSpace(formatFloat(val))
+	case int:
+		return strings.TrimSpace(target) == strings.TrimSpace(formatInt(val))
+	default:
+		return false
+	}
+}
+
+func formatFloat(f float64) string {
+	// Format without trailing zeros for whole numbers
+	if f == float64(int64(f)) {
+		return strconv.FormatInt(int64(f), 10)
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+func formatInt(i int) string {
+	return strconv.Itoa(i)
 }
 
 // extractSingleQuotedValue extracts a single-quoted value after a prefix.

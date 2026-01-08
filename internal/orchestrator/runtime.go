@@ -13,6 +13,7 @@ type Runtime struct {
 	nodeStates     map[string]*NodeStatus
 	puzzleStates   map[string]*PuzzleStatus
 	puzzleRuntimes map[string]*PuzzleRuntime
+	actionExecutor *ActionExecutor
 }
 
 // NewRuntime creates a new scene runtime.
@@ -146,7 +147,14 @@ func (r *Runtime) activatePuzzle(node *Node) {
 }
 
 func (r *Runtime) executeAction(node *Node) {
-	// MVP: actions complete immediately
+	// If we have an action executor, try to execute the action
+	if r.actionExecutor != nil {
+		if err := r.actionExecutor.ExecuteAction(node.ID, node.Config); err != nil {
+			// Action failed, but we still complete the node for deterministic flow
+			// The error was already logged via device.error event
+		}
+	}
+	// MVP: actions complete immediately (synchronous)
 	r.completeNode(node.ID)
 }
 
@@ -245,8 +253,9 @@ func (r *Runtime) evaluateAllConditions() {
 		fromStatus := r.nodeStates[edge.From]
 		toStatus := r.nodeStates[edge.To]
 
-		// Only evaluate if source is completed and target is idle
-		if fromStatus.State == NodeStateCompleted && toStatus.State == NodeStateIdle {
+		// Only evaluate if source is completed/overridden and target is idle
+		fromDone := fromStatus.State == NodeStateCompleted || fromStatus.State == NodeStateOverridden
+		if fromDone && toStatus.State == NodeStateIdle {
 			if EvalCondition(edge.Condition, ctx) {
 				r.activateNode(edge.To)
 			}
@@ -414,4 +423,9 @@ func (r *Runtime) resetState() {
 	r.nodeStates = make(map[string]*NodeStatus)
 	r.puzzleStates = make(map[string]*PuzzleStatus)
 	r.puzzleRuntimes = make(map[string]*PuzzleRuntime)
+}
+
+// SetActionExecutor sets the action executor for device commands.
+func (r *Runtime) SetActionExecutor(executor *ActionExecutor) {
+	r.actionExecutor = executor
 }

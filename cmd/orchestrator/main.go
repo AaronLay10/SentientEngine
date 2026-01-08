@@ -146,6 +146,10 @@ func main() {
 	// Set up device input subscriber for event topic subscriptions
 	if mqttConnected {
 		deviceSubscriber := mqtt.NewDeviceSubscriber(mqttClient, monitor.DeviceRegistry())
+		// Route device.input events to puzzle runtime
+		deviceSubscriber.SetInputHandler(func(eventName string, fields map[string]interface{}) {
+			rt.InjectEvent(eventName, fields)
+		})
 		monitor.SetSubscriber(deviceSubscriber)
 	}
 
