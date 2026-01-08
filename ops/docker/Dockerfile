@@ -63,5 +63,11 @@ ENV POSTGRES_DB=sentient
 # Expose ports
 EXPOSE 8080 1883 5432
 
+# Health check using /ready endpoint
+# - Returns healthy on HTTP 200, unhealthy on 503 or timeout
+# - start-period allows time for postgres/mqtt initialization
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 --start-period=10s \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/ready || exit 1
+
 # s6-overlay entrypoint
 ENTRYPOINT ["/init"]
