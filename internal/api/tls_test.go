@@ -90,6 +90,7 @@ func TestLoadTLSConfig_InvalidFiles(t *testing.T) {
 		CertFile: "/nonexistent/cert.pem",
 		KeyFile:  "/nonexistent/key.pem",
 	})
+	defer SetTLSConfigForTest(nil) // Clean up after test
 
 	cfg := LoadTLSConfig()
 	if cfg != nil {

@@ -18,6 +18,8 @@ func clearTLSEnv(t *testing.T) {
 	t.Setenv("SENTIENT_TLS_KEY", "")
 	t.Setenv("SENTIENT_TLS_CERT_FILE", "")
 	t.Setenv("SENTIENT_TLS_KEY_FILE", "")
+	// Also reset package-level TLS config in case a previous test set it
+	SetTLSConfigForTest(nil)
 }
 
 // waitFor polls a condition until it returns true or timeout expires.
