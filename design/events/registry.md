@@ -98,6 +98,7 @@ Note:
 - system.startup
 - system.shutdown
 - system.error
+- system.startup_restore
 
 ---
 

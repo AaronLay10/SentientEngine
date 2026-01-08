@@ -47,9 +47,10 @@ var allowedEvents = map[string]struct{}{
 	"device.error":        {},
 
 	// system
-	"system.startup":  {},
-	"system.shutdown": {},
-	"system.error":    {},
+	"system.startup":         {},
+	"system.shutdown":        {},
+	"system.error":           {},
+	"system.startup_restore": {},
 }
 
 func Validate(event string) error {

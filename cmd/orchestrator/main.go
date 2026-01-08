@@ -75,16 +75,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create runtime and start scene
-	rt := orchestrator.NewRuntime(sg)
-	if len(sg.Scenes) > 0 {
-		_ = rt.StartScene(sg.Scenes[0].ID)
-	}
-
-	// Register runtime with API for operator control
-	api.SetRuntimeController(rt)
-
-	// Initialize Postgres for event persistence
+	// Initialize Postgres for event persistence (before runtime, for restore)
 	var pgConnected bool
 	pgClient, err := postgres.New(roomCfg.Room.ID)
 	if err != nil {
@@ -97,6 +88,33 @@ func main() {
 		events.SetPostgresClient(pgClient)
 		defer pgClient.Close()
 	}
+
+	// Create runtime
+	rt := orchestrator.NewRuntime(sg)
+
+	// Restore state from Postgres if connected
+	var restored bool
+	if pgConnected {
+		state, count, err := orchestrator.RestoreFromEvents(pgClient, roomCfg.Room.ID, orchestrator.DefaultRestoreLimit)
+		if err != nil {
+			emit("error", "system.error", "failed to restore from events", map[string]interface{}{
+				"error": err.Error(),
+			})
+		} else if state != nil && state.SessionActive {
+			if err := rt.ApplyRestoredState(state); err == nil {
+				restored = true
+				orchestrator.EmitStartupRestore(count, roomCfg.Room.ID)
+			}
+		}
+	}
+
+	// Start fresh scene only if no state was restored
+	if !restored && len(sg.Scenes) > 0 {
+		_ = rt.StartScene(sg.Scenes[0].ID)
+	}
+
+	// Register runtime with API for operator control
+	api.SetRuntimeController(rt)
 
 	// Start API server in goroutine (shares event buffer with orchestrator)
 	api.Start(roomCfg.UIPort())
