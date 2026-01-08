@@ -1,0 +1,33 @@
+[Unit]
+Description=Sentient Engine Room: %i
+Documentation=https://github.com/your-org/sentient-engine
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/techadmin/sentient-engine
+
+# Load room-specific environment
+EnvironmentFile=/etc/sentient/%i.env
+
+# Pull image if not present (assumes docker login already done for private GHCR)
+ExecStartPre=/bin/bash -c 'docker image inspect ${SENTIENT_IMAGE} >/dev/null 2>&1 || docker pull ${SENTIENT_IMAGE}'
+
+# Start room container
+ExecStart=/home/techadmin/sentient-engine/ops/docker/start-room.sh %i ${SENTIENT_API_PORT} ${SENTIENT_MQTT_PORT} ${SENTIENT_PG_PORT}
+
+# Stop room container
+ExecStop=/home/techadmin/sentient-engine/ops/docker/stop-room.sh %i
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+
+# Timeout settings
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
