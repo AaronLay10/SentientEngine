@@ -55,6 +55,9 @@ func Emit(level, name, msg string, fields map[string]interface{}) ([]byte, error
 
 	buffer.Add(e)
 
+	// Broadcast to WebSocket subscribers
+	broadcast(e)
+
 	// Persist to Postgres (non-blocking, error-resistant)
 	pgMu.RLock()
 	client := pgClient
