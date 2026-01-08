@@ -117,6 +117,72 @@ scrape_configs:
         port: 8080
 ```
 
+### File-Based Service Discovery
+
+For dynamic room management, use file-based service discovery:
+
+**prometheus.yml:**
+```yaml
+scrape_configs:
+  - job_name: 'sentient'
+    scrape_interval: 15s
+    file_sd_configs:
+      - files:
+          - '/etc/prometheus/targets/sentient-rooms.json'
+        refresh_interval: 30s
+```
+
+**sentient-rooms.json:**
+```json
+[
+  {
+    "targets": ["192.168.1.10:8080"],
+    "labels": {
+      "room": "pharaohs",
+      "environment": "production",
+      "location": "building-a"
+    }
+  },
+  {
+    "targets": ["192.168.1.11:8080"],
+    "labels": {
+      "room": "clockwork",
+      "environment": "production",
+      "location": "building-a"
+    }
+  }
+]
+```
+
+Update the JSON file when rooms are added/removed - Prometheus will reload automatically.
+
+### Recording Rules (Optional)
+
+For dashboards with high cardinality or frequent queries, add recording rules:
+
+**sentient-recording-rules.yml:**
+```yaml
+groups:
+  - name: sentient_recording
+    interval: 15s
+    rules:
+      # Pre-compute event rate for dashboard efficiency
+      - record: sentient:events_rate_5m
+        expr: rate(sentient_events_total[5m])
+
+      # Room health score (2=healthy, 1=degraded, 0=down)
+      - record: sentient:room_health
+        expr: >
+          sentient_rooms_active
+          + sentient_mqtt_connected
+          + sentient_postgres_connected
+          - 1
+
+      # Uptime in hours for display
+      - record: sentient:uptime_hours
+        expr: sentient_uptime_seconds / 3600
+```
+
 ## Alerting
 
 ### Environment Variables
@@ -293,6 +359,12 @@ groups:
 
 ## Grafana Dashboard
 
+### Quick Start
+
+1. Add Prometheus as a data source in Grafana
+2. Create a new dashboard or import the JSON below
+3. Set the Prometheus data source in each panel
+
 ### Example Queries
 
 **Uptime by Room:**
@@ -315,15 +387,134 @@ sentient_mqtt_connected + sentient_postgres_connected
 sentient_ws_clients
 ```
 
-### Dashboard JSON
+**Room Health Score (use recording rule):**
+```promql
+sentient:room_health
+```
 
-A basic Grafana dashboard can be created with these panels:
+### Recommended Panels
 
-1. **Stat Panel**: Room Status (sentient_rooms_active)
-2. **Gauge Panel**: Uptime (sentient_uptime_seconds / 3600 for hours)
-3. **Graph Panel**: Events Over Time (rate(sentient_events_total[5m]))
-4. **Stat Panels**: MQTT/Postgres Status (sentient_mqtt_connected, sentient_postgres_connected)
-5. **Graph Panel**: WebSocket Clients (sentient_ws_clients)
+| Panel Type | Metric | Configuration |
+|------------|--------|---------------|
+| Stat | `sentient_rooms_active` | Color: green=1, red=0 |
+| Stat | `sentient_uptime_seconds / 3600` | Unit: hours, decimals: 1 |
+| Stat | `sentient_mqtt_connected` | Color: green=1, red=0 |
+| Stat | `sentient_postgres_connected` | Color: green=1, red=0 |
+| Time Series | `rate(sentient_events_total[5m])` | Unit: events/sec |
+| Time Series | `sentient_ws_clients` | Unit: short |
+| Gauge | `sentient:room_health` | Min: 0, Max: 2, thresholds: 0=red, 1=yellow, 2=green |
+
+### Dashboard Variables
+
+Add these template variables for multi-room dashboards:
+
+| Variable | Type | Query |
+|----------|------|-------|
+| `room` | Query | `label_values(sentient_rooms_active, room)` |
+| `instance` | Query | `label_values(sentient_rooms_active{room="$room"}, instance)` |
+
+Then filter panels with: `{room="$room"}`
+
+### Sample Dashboard JSON
+
+Import this JSON in Grafana (Dashboards → Import → Paste JSON):
+
+```json
+{
+  "title": "Sentient Engine Overview",
+  "uid": "sentient-overview",
+  "tags": ["sentient", "escape-room"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "templating": {
+    "list": [
+      {
+        "name": "room",
+        "type": "query",
+        "query": "label_values(sentient_rooms_active, room)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Room Status",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sentient_rooms_active{room=~\"$room\"}"}],
+      "options": {"colorMode": "background"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{"type": "value", "options": {"0": {"text": "DOWN"}, "1": {"text": "UP"}}}],
+          "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}
+        }
+      }
+    },
+    {
+      "title": "Uptime",
+      "type": "stat",
+      "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sentient_uptime_seconds{room=~\"$room\"} / 3600"}],
+      "fieldConfig": {"defaults": {"unit": "h", "decimals": 1}}
+    },
+    {
+      "title": "MQTT",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 0, "w": 2, "h": 4},
+      "targets": [{"expr": "sentient_mqtt_connected{room=~\"$room\"}"}],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{"type": "value", "options": {"0": {"text": "DISC"}, "1": {"text": "OK"}}}],
+          "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}
+        }
+      }
+    },
+    {
+      "title": "Postgres",
+      "type": "stat",
+      "gridPos": {"x": 10, "y": 0, "w": 2, "h": 4},
+      "targets": [{"expr": "sentient_postgres_connected{room=~\"$room\"}"}],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{"type": "value", "options": {"0": {"text": "DISC"}, "1": {"text": "OK"}}}],
+          "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}
+        }
+      }
+    },
+    {
+      "title": "WS Clients",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sentient_ws_clients{room=~\"$room\"}"}]
+    },
+    {
+      "title": "Event Rate",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [{"expr": "rate(sentient_events_total{room=~\"$room\"}[5m])", "legendFormat": "{{room}}"}],
+      "fieldConfig": {"defaults": {"unit": "events/s"}}
+    },
+    {
+      "title": "WebSocket Clients",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [{"expr": "sentient_ws_clients{room=~\"$room\"}", "legendFormat": "{{room}}"}]
+    }
+  ]
+}
+```
+
+### Grafana Alerting (Optional)
+
+Grafana can also send alerts independently of Prometheus Alertmanager:
+
+1. Go to panel → Edit → Alert tab
+2. Create alert rule with condition (e.g., `sentient_rooms_active == 0`)
+3. Configure notification channel (email, Slack, PagerDuty)
+
+This provides redundancy if Prometheus alerting fails.
 
 ## Testing Observability
 
