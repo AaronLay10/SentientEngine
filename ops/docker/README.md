@@ -173,6 +173,110 @@ For multiple rooms, create a compose file per room or use profiles.
 | `POSTGRES_USER` | `sentient` | PostgreSQL user |
 | `POSTGRES_DB` | `sentient` | PostgreSQL database |
 
+## Authentication
+
+Authentication is optional. If no credentials are configured, all endpoints are accessible without auth.
+
+| Variable | Description |
+|----------|-------------|
+| `SENTIENT_ADMIN_USER` | Admin username |
+| `SENTIENT_ADMIN_PASS` | Admin password |
+| `SENTIENT_OPERATOR_USER` | Operator username |
+| `SENTIENT_OPERATOR_PASS` | Operator password |
+
+### Using Environment Variables
+
+```bash
+docker run -d \
+  --name room-crypt \
+  -p 8080:8080 \
+  -e SENTIENT_ADMIN_USER=admin \
+  -e SENTIENT_ADMIN_PASS=supersecret \
+  -e SENTIENT_OPERATOR_USER=operator \
+  -e SENTIENT_OPERATOR_PASS=opsecret \
+  -v $(pwd)/rooms/_template:/config:ro \
+  sentient-room:dev
+```
+
+### Using File-Based Secrets (*_FILE convention)
+
+For Docker secrets, Kubernetes secrets, or systemd credentials, use the `*_FILE` variants.
+The value is read from the specified file path at startup.
+
+```bash
+# Create secrets directory
+mkdir -p ./secrets
+echo -n "admin" > ./secrets/admin_user
+echo -n "supersecret" > ./secrets/admin_pass
+
+docker run -d \
+  --name room-crypt \
+  -p 8080:8080 \
+  -e SENTIENT_ADMIN_USER_FILE=/run/secrets/admin_user \
+  -e SENTIENT_ADMIN_PASS_FILE=/run/secrets/admin_pass \
+  -v $(pwd)/secrets:/run/secrets:ro \
+  -v $(pwd)/rooms/_template:/config:ro \
+  sentient-room:dev
+```
+
+With Docker Swarm secrets:
+
+```yaml
+services:
+  room:
+    image: sentient-room:dev
+    secrets:
+      - admin_user
+      - admin_pass
+    environment:
+      - SENTIENT_ADMIN_USER_FILE=/run/secrets/admin_user
+      - SENTIENT_ADMIN_PASS_FILE=/run/secrets/admin_pass
+
+secrets:
+  admin_user:
+    external: true
+  admin_pass:
+    external: true
+```
+
+## TLS Configuration
+
+| Variable | Description |
+|----------|-------------|
+| `SENTIENT_TLS_CERT` | Path to TLS certificate file |
+| `SENTIENT_TLS_KEY` | Path to TLS private key file |
+
+### Using Environment Variables
+
+```bash
+docker run -d \
+  --name room-crypt \
+  -p 8443:8443 \
+  -e SENTIENT_TLS_CERT=/certs/server.crt \
+  -e SENTIENT_TLS_KEY=/certs/server.key \
+  -v $(pwd)/certs:/certs:ro \
+  -v $(pwd)/rooms/_template:/config:ro \
+  sentient-room:dev
+```
+
+### Using File-Based Secrets
+
+```bash
+# Store cert paths in files (useful for dynamic cert rotation)
+echo -n "/certs/server.crt" > ./secrets/tls_cert_path
+echo -n "/certs/server.key" > ./secrets/tls_key_path
+
+docker run -d \
+  --name room-crypt \
+  -p 8443:8443 \
+  -e SENTIENT_TLS_CERT_FILE=/run/secrets/tls_cert_path \
+  -e SENTIENT_TLS_KEY_FILE=/run/secrets/tls_key_path \
+  -v $(pwd)/secrets:/run/secrets:ro \
+  -v $(pwd)/certs:/certs:ro \
+  -v $(pwd)/rooms/_template:/config:ro \
+  sentient-room:dev
+```
+
 ## Verify Running Container
 
 ```bash

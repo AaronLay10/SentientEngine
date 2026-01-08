@@ -2,8 +2,10 @@ package api
 
 import (
 	"crypto/subtle"
+	"log"
 	"net/http"
-	"os"
+
+	"github.com/AaronLay10/SentientEngine/internal/config"
 )
 
 // Role represents an authorization role.
@@ -25,13 +27,26 @@ type authConfig struct {
 
 var auth *authConfig
 
-// InitAuth loads auth credentials from environment variables.
+// InitAuth loads auth credentials from environment variables or files.
+// Supports *_FILE convention: if SENTIENT_ADMIN_USER_FILE is set, reads from that file.
 // If none are set, authentication is disabled (dev-friendly).
 func InitAuth() {
-	adminUser := os.Getenv("SENTIENT_ADMIN_USER")
-	adminPass := os.Getenv("SENTIENT_ADMIN_PASS")
-	operatorUser := os.Getenv("SENTIENT_OPERATOR_USER")
-	operatorPass := os.Getenv("SENTIENT_OPERATOR_PASS")
+	adminUser, err := config.ResolveSecret("SENTIENT_ADMIN_USER")
+	if err != nil {
+		log.Fatalf("failed to resolve SENTIENT_ADMIN_USER: %v", err)
+	}
+	adminPass, err := config.ResolveSecret("SENTIENT_ADMIN_PASS")
+	if err != nil {
+		log.Fatalf("failed to resolve SENTIENT_ADMIN_PASS: %v", err)
+	}
+	operatorUser, err := config.ResolveSecret("SENTIENT_OPERATOR_USER")
+	if err != nil {
+		log.Fatalf("failed to resolve SENTIENT_OPERATOR_USER: %v", err)
+	}
+	operatorPass, err := config.ResolveSecret("SENTIENT_OPERATOR_PASS")
+	if err != nil {
+		log.Fatalf("failed to resolve SENTIENT_OPERATOR_PASS: %v", err)
+	}
 
 	// Auth is enabled only if at least admin credentials are set
 	enabled := adminUser != "" && adminPass != ""
