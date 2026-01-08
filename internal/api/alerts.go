@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -26,6 +27,7 @@ const (
 
 // AlertPayload is the JSON structure sent to the webhook.
 type AlertPayload struct {
+	AlertID   string                 `json:"alert_id"`
 	RoomName  string                 `json:"room_name"`
 	Event     string                 `json:"event"`
 	Timestamp string                 `json:"timestamp"`
@@ -51,8 +53,10 @@ var (
 	// Track connection state for alerting
 	mqttDisconnectedSince   time.Time
 	mqttAlertSent           bool
+	mqttLastAlertID         string // For correlating recovery alerts
 	postgresDisconnectedAt  time.Time
 	postgresAlertSent       bool
+	postgresLastAlertID     string // For correlating recovery alerts
 	lastKnownMQTTState      bool
 	lastKnownPostgresState  bool
 	alertMonitorInitialized bool
@@ -97,24 +101,34 @@ func GetAlertWebhookURL() string {
 	return alertConfig.WebhookURL
 }
 
+// generateAlertID creates a unique identifier for an alert.
+// Format: {room}-{event}-{unix_millis}
+func generateAlertID(roomName, event string) string {
+	return fmt.Sprintf("%s-%s-%d", roomName, event, time.Now().UnixMilli())
+}
+
 // SendAlert sends an alert to the configured webhook (best-effort, non-blocking).
-func SendAlert(event, severity, message string, details map[string]interface{}) {
+// Returns the generated alert_id for correlation with recovery alerts.
+func SendAlert(event, severity, message string, details map[string]interface{}) string {
 	alertMu.Lock()
 	webhookURL := alertConfig.WebhookURL
 	alertMu.Unlock()
-
-	if webhookURL == "" {
-		// No webhook configured, log instead
-		log.Printf("[ALERT] %s severity=%s msg=%q details=%v", event, severity, message, details)
-		return
-	}
 
 	roomName := GetRoomName()
 	if roomName == "" {
 		roomName = "unknown"
 	}
 
+	alertID := generateAlertID(roomName, event)
+
+	if webhookURL == "" {
+		// No webhook configured, log instead
+		log.Printf("[ALERT] id=%s %s severity=%s msg=%q details=%v", alertID, event, severity, message, details)
+		return alertID
+	}
+
 	payload := AlertPayload{
+		AlertID:   alertID,
 		RoomName:  roomName,
 		Event:     event,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -125,6 +139,7 @@ func SendAlert(event, severity, message string, details map[string]interface{}) 
 
 	// Send asynchronously to avoid blocking
 	go sendWebhook(webhookURL, payload)
+	return alertID
 }
 
 // sendWebhook performs the actual HTTP POST (runs in goroutine).
@@ -164,12 +179,18 @@ func CheckAndAlertMQTT(connected bool) {
 		// Reset disconnect tracking
 		if !lastKnownMQTTState && mqttAlertSent {
 			// Was disconnected and alerted, now recovered - send recovery alert
-			go SendAlert(AlertMQTTDisconnected, SeverityInfo, "MQTT connection restored", map[string]interface{}{
+			// Include related_alert_id to correlate with the original alert
+			details := map[string]interface{}{
 				"recovered_at": now.UTC().Format(time.RFC3339),
-			})
+			}
+			if mqttLastAlertID != "" {
+				details["related_alert_id"] = mqttLastAlertID
+			}
+			SendAlert(AlertMQTTDisconnected, SeverityInfo, "MQTT connection restored", details)
 		}
 		mqttDisconnectedSince = time.Time{}
 		mqttAlertSent = false
+		mqttLastAlertID = ""
 		lastKnownMQTTState = true
 		return
 	}
@@ -186,7 +207,7 @@ func CheckAndAlertMQTT(connected bool) {
 		disconnectedDuration := now.Sub(mqttDisconnectedSince)
 		if disconnectedDuration >= alertConfig.MQTTDisconnectDelay {
 			mqttAlertSent = true
-			go SendAlert(AlertMQTTDisconnected, SeverityWarning,
+			mqttLastAlertID = SendAlert(AlertMQTTDisconnected, SeverityWarning,
 				"MQTT broker disconnected",
 				map[string]interface{}{
 					"disconnected_since":   mqttDisconnectedSince.UTC().Format(time.RFC3339),
@@ -211,12 +232,18 @@ func CheckAndAlertPostgres(connected bool) {
 		// Reset tracking
 		if !lastKnownPostgresState && postgresAlertSent {
 			// Was disconnected and alerted, now recovered
-			go SendAlert(AlertPostgresUnavailable, SeverityInfo, "PostgreSQL connection restored", map[string]interface{}{
+			// Include related_alert_id to correlate with the original alert
+			details := map[string]interface{}{
 				"recovered_at": now.UTC().Format(time.RFC3339),
-			})
+			}
+			if postgresLastAlertID != "" {
+				details["related_alert_id"] = postgresLastAlertID
+			}
+			SendAlert(AlertPostgresUnavailable, SeverityInfo, "PostgreSQL connection restored", details)
 		}
 		postgresDisconnectedAt = time.Time{}
 		postgresAlertSent = false
+		postgresLastAlertID = ""
 		lastKnownPostgresState = true
 		return
 	}
@@ -233,7 +260,7 @@ func CheckAndAlertPostgres(connected bool) {
 		disconnectedDuration := now.Sub(postgresDisconnectedAt)
 		if disconnectedDuration >= alertConfig.PostgresDisconnectDelay {
 			postgresAlertSent = true
-			go SendAlert(AlertPostgresUnavailable, SeverityCritical,
+			postgresLastAlertID = SendAlert(AlertPostgresUnavailable, SeverityCritical,
 				"PostgreSQL unavailable",
 				map[string]interface{}{
 					"disconnected_since":   postgresDisconnectedAt.UTC().Format(time.RFC3339),

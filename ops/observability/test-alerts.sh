@@ -203,10 +203,12 @@ test_mqtt_disconnect() {
     sleep 2
     check_metrics "sentient_mqtt_connected" "0" || true
 
-    # Verify alert payload
+    # Verify alert payload (including alert_id)
     local alert=$(grep "mqtt_disconnected" "$WEBHOOK_LOG" | grep -v "restored" | tail -1)
-    if echo "$alert" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["room_name"]; assert d["timestamp"]; assert d["severity"]=="warning"'; then
+    if echo "$alert" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["alert_id"], "missing alert_id"; assert d["room_name"]; assert d["timestamp"]; assert d["severity"]=="warning"'; then
         log_info "Alert payload validation: PASS"
+        local alert_id=$(echo "$alert" | python3 -c 'import sys,json; print(json.load(sys.stdin)["alert_id"])')
+        log_info "Alert ID: ${alert_id}"
     else
         log_error "Alert payload validation: FAIL"
         return 1
@@ -217,9 +219,16 @@ test_mqtt_disconnect() {
     docker exec "$CONTAINER_NAME" /usr/sbin/mosquitto -d -c /etc/mosquitto/mosquitto.conf 2>/dev/null || true
     sleep 5
 
-    # Check for recovery alert
+    # Check for recovery alert (should include related_alert_id for correlation)
     if grep -q "MQTT connection restored" "$WEBHOOK_LOG"; then
         log_info "MQTT recovery alert: PASS"
+        local recovery=$(grep "MQTT connection restored" "$WEBHOOK_LOG" | tail -1)
+        if echo "$recovery" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d.get("details",{}).get("related_alert_id"), "missing related_alert_id"' 2>/dev/null; then
+            local related_id=$(echo "$recovery" | python3 -c 'import sys,json; print(json.load(sys.stdin)["details"]["related_alert_id"])')
+            log_info "Recovery alert correlates to: ${related_id}"
+        else
+            log_warn "Recovery alert missing related_alert_id (correlation feature)"
+        fi
     else
         log_warn "MQTT recovery alert not received (may need more time)"
     fi
@@ -250,8 +259,8 @@ test_postgres_unavailable() {
 test_no_duplicate_alerts() {
     log_step "=== Testing Alert De-duplication ==="
 
-    # Count alerts in log
-    local mqtt_alerts=$(grep -c "mqtt_disconnected" "$WEBHOOK_LOG" 2>/dev/null | grep -v "restored" || echo "0")
+    # Count alerts in log (exclude recovery alerts with "restored")
+    local mqtt_alerts=$(grep "mqtt_disconnected" "$WEBHOOK_LOG" 2>/dev/null | grep -v "restored" | wc -l || echo "0")
 
     if [[ "$mqtt_alerts" -le 2 ]]; then
         log_info "De-duplication check: PASS (${mqtt_alerts} MQTT alerts, expected <=2)"

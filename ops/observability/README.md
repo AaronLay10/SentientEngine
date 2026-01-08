@@ -141,6 +141,7 @@ Alerts are sent as HTTP POST with JSON body:
 
 ```json
 {
+  "alert_id": "pharaohs-mqtt_disconnected-1705329022000",
   "room_name": "pharaohs",
   "event": "mqtt_disconnected",
   "timestamp": "2024-01-15T14:30:22Z",
@@ -153,22 +154,35 @@ Alerts are sent as HTTP POST with JSON body:
 }
 ```
 
+### Alert ID
+
+Each alert includes a unique `alert_id` for:
+- **Deduplication**: Receivers can track which alerts have been processed
+- **Correlation**: Recovery alerts include `related_alert_id` to link back to the original alert
+- **Log searching**: Search logs using the alert_id to find related events
+
+Format: `{room_name}-{event_type}-{unix_timestamp_millis}`
+
 ### Recovery Alerts
 
-When a service recovers, an info-level alert is sent:
+When a service recovers, an info-level alert is sent with `related_alert_id`:
 
 ```json
 {
+  "alert_id": "pharaohs-mqtt_disconnected-1705329300000",
   "room_name": "pharaohs",
   "event": "mqtt_disconnected",
   "timestamp": "2024-01-15T14:35:00Z",
   "severity": "info",
   "message": "MQTT connection restored",
   "details": {
-    "recovered_at": "2024-01-15T14:35:00Z"
+    "recovered_at": "2024-01-15T14:35:00Z",
+    "related_alert_id": "pharaohs-mqtt_disconnected-1705329022000"
   }
 }
 ```
+
+Use `related_alert_id` to correlate recovery alerts with the original alert.
 
 ### Webhook Integration Examples
 
