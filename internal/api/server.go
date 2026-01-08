@@ -422,8 +422,9 @@ func gameStopHandler(w http.ResponseWriter, r *http.Request) {
 // NewServer creates a configured HTTP server without starting it.
 // Returns the server for graceful shutdown control.
 func NewServer(port int) *http.Server {
-	// Initialize auth from environment variables
+	// Initialize auth and TLS from environment variables
 	InitAuth()
+	InitTLS()
 
 	mux := http.NewServeMux()
 
@@ -460,10 +461,36 @@ func ListenAndServe(port int) error {
 
 // StartServer starts the API server in a goroutine and returns the server
 // for graceful shutdown. Use Shutdown(ctx) to stop the server gracefully.
+// If TLS is configured via SENTIENT_TLS_CERT and SENTIENT_TLS_KEY, starts HTTPS.
+// Otherwise, starts HTTP (existing behavior).
 func StartServer(port int) *http.Server {
 	srv := NewServer(port)
+
+	if IsTLSEnabled() {
+		tlsCfg := LoadTLSConfig()
+		if tlsCfg == nil {
+			log.Printf("TLS configured but failed to load certificates, falling back to HTTP")
+			go func() {
+				log.Printf("API listening on %s (HTTP)\n", srv.Addr)
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Printf("api server error: %v", err)
+				}
+			}()
+			return srv
+		}
+		srv.TLSConfig = tlsCfg
+		go func() {
+			cfg := GetTLSConfig()
+			log.Printf("API listening on %s (HTTPS)\n", srv.Addr)
+			if err := srv.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile); err != nil && err != http.ErrServerClosed {
+				log.Printf("api server error: %v", err)
+			}
+		}()
+		return srv
+	}
+
 	go func() {
-		log.Printf("API listening on %s\n", srv.Addr)
+		log.Printf("API listening on %s (HTTP)\n", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("api server error: %v", err)
 		}
