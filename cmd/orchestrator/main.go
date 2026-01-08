@@ -16,6 +16,7 @@ import (
 	"github.com/AaronLay10/SentientEngine/internal/mqtt"
 	"github.com/AaronLay10/SentientEngine/internal/orchestrator"
 	"github.com/AaronLay10/SentientEngine/internal/storage/postgres"
+	"github.com/AaronLay10/SentientEngine/internal/version"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -165,6 +166,7 @@ func main() {
 	hostname, _ := os.Hostname()
 	emit("info", "system.startup", "orchestrator starting", map[string]interface{}{
 		"service":            "orchestrator",
+		"version":            version.Version,
 		"hostname":           hostname,
 		"pid":                os.Getpid(),
 		"room_id":            roomCfg.Room.ID,

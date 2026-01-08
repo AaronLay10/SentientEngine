@@ -6,6 +6,9 @@
 # =============================================================================
 FROM golang:1.24-alpine AS builder
 
+# Build arguments for version injection
+ARG VERSION=1.0.0
+
 RUN apk add --no-cache git
 
 WORKDIR /src
@@ -13,12 +16,26 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/orchestrator ./cmd/orchestrator
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-X github.com/AaronLay10/SentientEngine/internal/version.Version=${VERSION}" \
+    -o /bin/orchestrator ./cmd/orchestrator
 
 # =============================================================================
 # Stage 2: Runtime image with s6-overlay
 # =============================================================================
 FROM alpine:3.19
+
+# OCI image labels (build args)
+ARG VERSION=1.0.0
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="Sentient Engine" \
+      org.opencontainers.image.description="Event-sourced escape room orchestrator" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/AaronLay10/SentientEngine"
 
 # Install s6-overlay
 ARG S6_OVERLAY_VERSION=3.1.6.2

@@ -32,12 +32,90 @@ No sidecars, no external dependencies.
 | `/data/mqtt` | Mosquitto persistence |
 | `/config` | Room configuration (room.yaml, devices.yaml, scene-graph.json) |
 
+## Versioning
+
+Sentient Engine uses semantic versioning (MAJOR.MINOR.PATCH). The version is embedded
+in the binary at build time and reported via:
+
+- `/health` endpoint (`version` field)
+- `/ready` endpoint (`version` field)
+- `system.startup` event (`version` field)
+- Docker image labels (OCI standard)
+
+### Version Scheme
+
+| Version | Meaning |
+|---------|---------|
+| `1.0.0` | Initial stable release |
+| `1.0.x` | Patch releases (bug fixes, no breaking changes) |
+| `1.x.0` | Minor releases (new features, backward compatible) |
+| `x.0.0` | Major releases (breaking changes) |
+
 ## Build
 
 From repository root:
 
 ```bash
 docker build -t sentient-room:dev -f ops/docker/Dockerfile .
+```
+
+### Building a Release Image
+
+For tagged releases, pass version and git metadata as build arguments:
+
+```bash
+VERSION=1.0.0
+GIT_COMMIT=$(git rev-parse HEAD)
+BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+docker build \
+  --build-arg VERSION=${VERSION} \
+  --build-arg GIT_COMMIT=${GIT_COMMIT} \
+  --build-arg BUILD_DATE=${BUILD_DATE} \
+  -t sentient-room:${VERSION} \
+  -t sentient-room:latest \
+  -f ops/docker/Dockerfile .
+```
+
+This embeds:
+- Version in the binary (reported by `/health`, `/ready`, `system.startup`)
+- OCI labels for image inspection
+
+### Verify Image Labels
+
+```bash
+docker inspect sentient-room:1.0.0 --format '{{json .Config.Labels}}' | jq .
+```
+
+Output:
+```json
+{
+  "org.opencontainers.image.created": "2024-01-15T10:30:00Z",
+  "org.opencontainers.image.revision": "abc123def456...",
+  "org.opencontainers.image.version": "1.0.0"
+}
+```
+
+### Verify Runtime Version
+
+```bash
+# Start container
+docker run -d --name test -p 8080:8080 sentient-room:1.0.0
+
+# Check version via /health
+curl -s http://localhost:8080/health | jq .version
+# => "1.0.0"
+
+# Check version via /ready
+curl -s http://localhost:8080/ready | jq .version
+# => "1.0.0"
+
+# Check version in system.startup event
+curl -s http://localhost:8080/events | jq '.[0].fields.version'
+# => "1.0.0"
+
+# Cleanup
+docker rm -f test
 ```
 
 ## Run Single Room

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AaronLay10/SentientEngine/internal/events"
+	"github.com/AaronLay10/SentientEngine/internal/version"
 )
 
 // ReadinessState tracks the health of dependencies for the /ready endpoint.
@@ -52,6 +53,7 @@ func SetPostgresState(connected, optional bool) {
 // ReadinessResponse is returned by the /ready endpoint.
 type ReadinessResponse struct {
 	Ready       bool                      `json:"ready"`
+	Version     string                    `json:"version"`
 	Checks      map[string]ReadinessCheck `json:"checks"`
 	NotReadyMsg string                    `json:"message,omitempty"`
 }
@@ -75,6 +77,9 @@ type RuntimeController interface {
 
 var runtimeController RuntimeController
 
+// redirectServer holds the HTTP redirect server when TLS is enabled.
+var redirectServer *http.Server
+
 // SetRuntimeController sets the runtime used by operator endpoints.
 func SetRuntimeController(rc RuntimeController) {
 	runtimeController = rc
@@ -83,6 +88,7 @@ func SetRuntimeController(rc RuntimeController) {
 type HealthResponse struct {
 	Status    string `json:"status"`
 	Service   string `json:"service"`
+	Version   string `json:"version"`
 	Hostname  string `json:"hostname"`
 	Timestamp string `json:"ts"`
 }
@@ -92,6 +98,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	resp := HealthResponse{
 		Status:    "ok",
 		Service:   "api",
+		Version:   version.Version,
 		Hostname:  host,
 		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -145,8 +152,9 @@ func readyHandler(w http.ResponseWriter, r *http.Request) {
 		(postgresConnected || postgresOptional)
 
 	resp := ReadinessResponse{
-		Ready:  isReady,
-		Checks: checks,
+		Ready:   isReady,
+		Version: version.Version,
+		Checks:  checks,
 	}
 
 	if !isReady && len(notReadyReasons) > 0 {
@@ -459,10 +467,16 @@ func ListenAndServe(port int) error {
 	return srv.ListenAndServe()
 }
 
+// HTTPSPortOffset is added to the HTTP port to derive the HTTPS port when TLS is enabled.
+const HTTPSPortOffset = 443
+
 // StartServer starts the API server in a goroutine and returns the server
 // for graceful shutdown. Use Shutdown(ctx) to stop the server gracefully.
-// If TLS is configured via SENTIENT_TLS_CERT and SENTIENT_TLS_KEY, starts HTTPS.
-// Otherwise, starts HTTP (existing behavior).
+// If TLS is configured via SENTIENT_TLS_CERT and SENTIENT_TLS_KEY:
+//   - HTTPS server runs on port + 443 (e.g., 8080 -> 8443)
+//   - HTTP redirect server runs on port (redirects to HTTPS, except /health and /ready)
+//
+// Otherwise, starts HTTP on port (existing behavior).
 func StartServer(port int) *http.Server {
 	srv := NewServer(port)
 
@@ -478,14 +492,29 @@ func StartServer(port int) *http.Server {
 			}()
 			return srv
 		}
+
+		// HTTPS on port + offset
+		httpsPort := port + HTTPSPortOffset
+		srv.Addr = fmt.Sprintf(":%d", httpsPort)
 		srv.TLSConfig = tlsCfg
+
 		go func() {
 			cfg := GetTLSConfig()
-			log.Printf("API listening on %s (HTTPS)\n", srv.Addr)
+			log.Printf("API listening on :%d (HTTPS)\n", httpsPort)
 			if err := srv.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile); err != nil && err != http.ErrServerClosed {
 				log.Printf("api server error: %v", err)
 			}
 		}()
+
+		// HTTP redirect server on original port
+		redirectServer = NewRedirectServer(port, httpsPort)
+		go func() {
+			log.Printf("API redirect listening on :%d (HTTP -> HTTPS)\n", port)
+			if err := redirectServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("redirect server error: %v", err)
+			}
+		}()
+
 		return srv
 	}
 
@@ -509,12 +538,22 @@ func Start(port int) {
 }
 
 // Shutdown gracefully shuts down the server and closes all WebSocket connections.
+// Also shuts down the HTTP redirect server if TLS is enabled.
 func Shutdown(srv *http.Server, timeout time.Duration) error {
 	// Close all WebSocket connections first
 	events.CloseAllSubscribers()
 
-	// Then shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	// Shutdown redirect server if running
+	if redirectServer != nil {
+		if err := redirectServer.Shutdown(ctx); err != nil {
+			log.Printf("redirect server shutdown error: %v", err)
+		}
+		redirectServer = nil
+	}
+
+	// Then shutdown main server
 	return srv.Shutdown(ctx)
 }
