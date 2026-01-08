@@ -121,3 +121,34 @@ func TestUnsubscribeClosesChannel(t *testing.T) {
 		t.Error("expected channel to be closed after unsubscribe")
 	}
 }
+
+func TestCloseAllSubscribers(t *testing.T) {
+	// Clear any existing subscribers
+	CloseAllSubscribers()
+
+	// Create multiple subscribers
+	sub1 := Subscribe()
+	sub2 := Subscribe()
+	sub3 := Subscribe()
+
+	if SubscriberCount() != 3 {
+		t.Errorf("expected 3 subscribers, got %d", SubscriberCount())
+	}
+
+	// Close all subscribers
+	CloseAllSubscribers()
+
+	// All channels should be closed
+	_, ok1 := <-sub1
+	_, ok2 := <-sub2
+	_, ok3 := <-sub3
+
+	if ok1 || ok2 || ok3 {
+		t.Error("expected all channels to be closed")
+	}
+
+	// Subscriber count should be 0
+	if SubscriberCount() != 0 {
+		t.Errorf("expected 0 subscribers after CloseAllSubscribers, got %d", SubscriberCount())
+	}
+}

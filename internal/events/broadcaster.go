@@ -57,6 +57,18 @@ func SubscriberCount() int {
 	return len(broadcaster.subscribers)
 }
 
+// CloseAllSubscribers closes all subscriber channels for graceful shutdown.
+// This should be called before shutting down the HTTP server.
+func CloseAllSubscribers() {
+	broadcaster.mu.Lock()
+	defer broadcaster.mu.Unlock()
+
+	for sub := range broadcaster.subscribers {
+		close(sub)
+	}
+	broadcaster.subscribers = make(map[Subscriber]struct{})
+}
+
 // RecentEvents returns the last n events from the ring buffer.
 // If n is greater than available events, returns all available.
 func RecentEvents(n int) []Event {

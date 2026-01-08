@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +17,8 @@ import (
 	"github.com/AaronLay10/SentientEngine/internal/orchestrator"
 	"github.com/AaronLay10/SentientEngine/internal/storage/postgres"
 )
+
+const shutdownTimeout = 10 * time.Second
 
 func emit(level, event, msg string, fields map[string]interface{}) {
 	b, err := events.Emit(level, event, msg, fields)
@@ -77,16 +80,19 @@ func main() {
 
 	// Initialize Postgres for event persistence (before runtime, for restore)
 	var pgConnected bool
-	pgClient, err := postgres.New(roomCfg.Room.ID)
+	var pgClient *postgres.Client
+	pgClient, err = postgres.New(roomCfg.Room.ID)
 	if err != nil {
 		emit("error", "system.error", "postgres connection failed", map[string]interface{}{
 			"error": err.Error(),
 		})
-		// Continue without postgres per requirement
+		// Continue without postgres per requirement (mark as optional)
+		api.SetPostgresState(false, true)
 	} else {
 		pgConnected = true
 		events.SetPostgresClient(pgClient)
-		defer pgClient.Close()
+		api.SetPostgresState(true, false)
+		// Note: pgClient.Close() is called explicitly during graceful shutdown
 	}
 
 	// Create runtime
@@ -113,8 +119,8 @@ func main() {
 	// Register runtime with API for operator control
 	api.SetRuntimeController(rt)
 
-	// Start API server in goroutine (shares event buffer with orchestrator)
-	api.Start(roomCfg.UIPort())
+	// Start API server in goroutine with graceful shutdown support
+	apiServer := api.StartServer(roomCfg.UIPort())
 
 	// Start MQTT controller registration monitor
 	monitor := mqtt.NewMonitor(deviceSpecs, 2.0) // 2x heartbeat tolerance
@@ -136,7 +142,10 @@ func main() {
 		emit("error", "system.error", "mqtt broker not reachable", map[string]interface{}{
 			"broker": mqtt.BrokerURL(),
 		})
-		// Continue running without MQTT per requirement
+		// Continue running without MQTT per requirement (mark as optional)
+		api.SetMQTTState(false, true)
+	} else {
+		api.SetMQTTState(true, false)
 	}
 
 	// Set up device input subscriber for event topic subscriptions
@@ -155,25 +164,54 @@ func main() {
 
 	hostname, _ := os.Hostname()
 	emit("info", "system.startup", "orchestrator starting", map[string]interface{}{
-		"service":           "orchestrator",
-		"hostname":          hostname,
-		"pid":               os.Getpid(),
-		"room_id":           roomCfg.Room.ID,
-		"revision":          roomCfg.Room.Revision,
-		"scenes":            len(sg.Scenes),
-		"ui_port":           roomCfg.UIPort(),
-		"mqtt_connected":    mqttConnected,
+		"service":            "orchestrator",
+		"hostname":           hostname,
+		"pid":                os.Getpid(),
+		"room_id":            roomCfg.Room.ID,
+		"revision":           roomCfg.Room.Revision,
+		"scenes":             len(sg.Scenes),
+		"ui_port":            roomCfg.UIPort(),
+		"mqtt_connected":     mqttConnected,
 		"postgres_connected": pgConnected,
 	})
+
+	// Mark orchestrator as ready for /ready endpoint
+	api.SetOrchestratorReady(true)
 
 	// Wait for shutdown signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+	sig := <-sigCh
 
-	// Cleanup
+	// Begin graceful shutdown
+	log.Printf("Received signal %v, starting graceful shutdown...", sig)
+
+	// Mark as not ready (stop accepting traffic)
+	api.SetOrchestratorReady(false)
+
+	// Emit system.shutdown event (registry-approved)
+	emit("info", "system.shutdown", "orchestrator shutting down", map[string]interface{}{
+		"signal":   sig.String(),
+		"hostname": hostname,
+	})
+
+	// Stop monitor first (stops health checks)
 	monitor.Stop()
+
+	// Shutdown API server gracefully (closes WebSockets, waits for requests)
+	if err := api.Shutdown(apiServer, shutdownTimeout); err != nil {
+		log.Printf("API shutdown error: %v", err)
+	}
+
+	// Disconnect MQTT
 	if mqttConnected {
 		mqttClient.Disconnect()
 	}
+
+	// Close Postgres connection
+	if pgClient != nil {
+		pgClient.Close()
+	}
+
+	log.Printf("Graceful shutdown complete")
 }
