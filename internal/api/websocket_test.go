@@ -12,7 +12,29 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// clearTLSEnv prevents TLS initialization from trying to load nonexistent certs.
+func clearTLSEnv(t *testing.T) {
+	t.Setenv("SENTIENT_TLS_CERT", "")
+	t.Setenv("SENTIENT_TLS_KEY", "")
+	t.Setenv("SENTIENT_TLS_CERT_FILE", "")
+	t.Setenv("SENTIENT_TLS_KEY_FILE", "")
+}
+
+// waitFor polls a condition until it returns true or timeout expires.
+func waitFor(t *testing.T, timeout time.Duration, condition func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("timeout waiting for: %s", msg)
+}
+
 func TestWebSocketReceivesRecentEvents(t *testing.T) {
+	clearTLSEnv(t)
 	events.Clear()
 
 	// Emit some events before connecting
@@ -58,6 +80,7 @@ func TestWebSocketReceivesRecentEvents(t *testing.T) {
 }
 
 func TestWebSocketReceivesNewEvents(t *testing.T) {
+	clearTLSEnv(t)
 	events.Clear()
 
 	// Create test server
@@ -99,6 +122,7 @@ func TestWebSocketReceivesNewEvents(t *testing.T) {
 }
 
 func TestWebSocketDisconnectCleansUp(t *testing.T) {
+	clearTLSEnv(t)
 	events.Clear()
 
 	server := httptest.NewServer(http.HandlerFunc(wsEventsHandler))
@@ -114,30 +138,24 @@ func TestWebSocketDisconnectCleansUp(t *testing.T) {
 	}
 
 	// Wait for subscription to be registered
-	time.Sleep(50 * time.Millisecond)
-
-	afterConnect := events.SubscriberCount()
-	if afterConnect != initialCount+1 {
-		t.Errorf("expected subscriber count %d after connect, got %d", initialCount+1, afterConnect)
-	}
+	waitFor(t, 500*time.Millisecond, func() bool {
+		return events.SubscriberCount() == initialCount+1
+	}, "subscriber count to increase after connect")
 
 	// Close connection
 	conn.Close()
 
-	// Wait for cleanup
-	time.Sleep(100 * time.Millisecond)
-
 	// Emit an event to trigger the subscriber goroutine to notice the close
 	events.Emit("info", "node.started", "", nil)
-	time.Sleep(100 * time.Millisecond)
 
-	afterClose := events.SubscriberCount()
-	if afterClose != initialCount {
-		t.Errorf("expected subscriber count %d after close, got %d", initialCount, afterClose)
-	}
+	// Wait for cleanup
+	waitFor(t, 500*time.Millisecond, func() bool {
+		return events.SubscriberCount() == initialCount
+	}, "subscriber count to return to initial after close")
 }
 
 func TestWebSocketMultipleClients(t *testing.T) {
+	clearTLSEnv(t)
 	events.Clear()
 
 	server := httptest.NewServer(http.HandlerFunc(wsEventsHandler))

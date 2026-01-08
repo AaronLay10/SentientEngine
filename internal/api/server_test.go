@@ -7,7 +7,16 @@ import (
 	"testing"
 )
 
+// clearTLSEnvServer prevents TLS initialization from trying to load nonexistent certs.
+func clearTLSEnvServer(t *testing.T) {
+	t.Setenv("SENTIENT_TLS_CERT", "")
+	t.Setenv("SENTIENT_TLS_KEY", "")
+	t.Setenv("SENTIENT_TLS_CERT_FILE", "")
+	t.Setenv("SENTIENT_TLS_KEY_FILE", "")
+}
+
 func TestHealthEndpoint(t *testing.T) {
+	clearTLSEnvServer(t)
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 
@@ -28,6 +37,7 @@ func TestHealthEndpoint(t *testing.T) {
 }
 
 func TestReadyEndpoint_AllReady(t *testing.T) {
+	clearTLSEnvServer(t)
 	// Reset state
 	readiness.mu.Lock()
 	readiness.orchestratorReady = true
@@ -66,6 +76,7 @@ func TestReadyEndpoint_AllReady(t *testing.T) {
 }
 
 func TestReadyEndpoint_OrchestratorNotReady(t *testing.T) {
+	clearTLSEnvServer(t)
 	// Reset state
 	readiness.mu.Lock()
 	readiness.orchestratorReady = false
@@ -101,6 +112,7 @@ func TestReadyEndpoint_OrchestratorNotReady(t *testing.T) {
 }
 
 func TestReadyEndpoint_OptionalMQTTUnavailable(t *testing.T) {
+	clearTLSEnvServer(t)
 	// Reset state - MQTT unavailable but marked as optional
 	readiness.mu.Lock()
 	readiness.orchestratorReady = true
@@ -136,6 +148,7 @@ func TestReadyEndpoint_OptionalMQTTUnavailable(t *testing.T) {
 }
 
 func TestReadyEndpoint_RequiredMQTTNotConnected(t *testing.T) {
+	clearTLSEnvServer(t)
 	// Reset state - MQTT not connected and NOT optional
 	readiness.mu.Lock()
 	readiness.orchestratorReady = true
@@ -168,6 +181,7 @@ func TestReadyEndpoint_RequiredMQTTNotConnected(t *testing.T) {
 }
 
 func TestReadyEndpoint_OptionalPostgresUnavailable(t *testing.T) {
+	clearTLSEnvServer(t)
 	// Reset state - Postgres unavailable but marked as optional
 	readiness.mu.Lock()
 	readiness.orchestratorReady = true
@@ -203,6 +217,7 @@ func TestReadyEndpoint_OptionalPostgresUnavailable(t *testing.T) {
 }
 
 func TestReadyEndpoint_MultipleDependenciesNotReady(t *testing.T) {
+	clearTLSEnvServer(t)
 	// Reset state - multiple issues
 	readiness.mu.Lock()
 	readiness.orchestratorReady = false
@@ -236,6 +251,7 @@ func TestReadyEndpoint_MultipleDependenciesNotReady(t *testing.T) {
 }
 
 func TestSetReadinessState(t *testing.T) {
+	clearTLSEnvServer(t)
 	// Test SetOrchestratorReady
 	SetOrchestratorReady(true)
 	readiness.mu.RLock()
