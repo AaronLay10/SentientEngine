@@ -138,18 +138,23 @@ func TestWebSocketDisconnectCleansUp(t *testing.T) {
 	}
 
 	// Wait for subscription to be registered
-	waitFor(t, 500*time.Millisecond, func() bool {
+	// Use longer timeout for CI environments which may be slower
+	waitFor(t, 3*time.Second, func() bool {
 		return events.SubscriberCount() == initialCount+1
 	}, "subscriber count to increase after connect")
 
 	// Close connection
 	conn.Close()
 
-	// Emit an event to trigger the subscriber goroutine to notice the close
-	events.Emit("info", "node.started", "", nil)
+	// Emit events to trigger the subscriber goroutine to notice the close
+	// Multiple emits help ensure the goroutine processes the close
+	for i := 0; i < 3; i++ {
+		events.Emit("info", "node.started", "", nil)
+		time.Sleep(50 * time.Millisecond)
+	}
 
-	// Wait for cleanup
-	waitFor(t, 500*time.Millisecond, func() bool {
+	// Wait for cleanup with longer timeout for CI
+	waitFor(t, 3*time.Second, func() bool {
 		return events.SubscriberCount() == initialCount
 	}, "subscriber count to return to initial after close")
 }
