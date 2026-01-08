@@ -14,6 +14,7 @@ import (
 	"github.com/AaronLay10/SentientEngine/internal/events"
 	"github.com/AaronLay10/SentientEngine/internal/mqtt"
 	"github.com/AaronLay10/SentientEngine/internal/orchestrator"
+	"github.com/AaronLay10/SentientEngine/internal/storage/postgres"
 )
 
 func emit(level, event, msg string, fields map[string]interface{}) {
@@ -83,6 +84,20 @@ func main() {
 	// Register runtime with API for operator control
 	api.SetRuntimeController(rt)
 
+	// Initialize Postgres for event persistence
+	var pgConnected bool
+	pgClient, err := postgres.New(roomCfg.Room.ID)
+	if err != nil {
+		emit("error", "system.error", "postgres connection failed", map[string]interface{}{
+			"error": err.Error(),
+		})
+		// Continue without postgres per requirement
+	} else {
+		pgConnected = true
+		events.SetPostgresClient(pgClient)
+		defer pgClient.Close()
+	}
+
 	// Start API server in goroutine (shares event buffer with orchestrator)
 	api.Start(roomCfg.UIPort())
 
@@ -111,14 +126,15 @@ func main() {
 
 	hostname, _ := os.Hostname()
 	emit("info", "system.startup", "orchestrator starting", map[string]interface{}{
-		"service":        "orchestrator",
-		"hostname":       hostname,
-		"pid":            os.Getpid(),
-		"room_id":        roomCfg.Room.ID,
-		"revision":       roomCfg.Room.Revision,
-		"scenes":         len(sg.Scenes),
-		"ui_port":        roomCfg.UIPort(),
-		"mqtt_connected": mqttConnected,
+		"service":           "orchestrator",
+		"hostname":          hostname,
+		"pid":               os.Getpid(),
+		"room_id":           roomCfg.Room.ID,
+		"revision":          roomCfg.Room.Revision,
+		"scenes":            len(sg.Scenes),
+		"ui_port":           roomCfg.UIPort(),
+		"mqtt_connected":    mqttConnected,
+		"postgres_connected": pgConnected,
 	})
 
 	// Wait for shutdown signal

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/AaronLay10/SentientEngine/internal/events"
@@ -50,6 +51,43 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 func eventsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(events.Snapshot())
+}
+
+const maxEventsDBLimit = 1000
+
+func eventsDBHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	client := events.GetPostgresClient()
+	if client == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "postgres not available"})
+		return
+	}
+
+	limit := 200
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		l, err := strconv.Atoi(limitStr)
+		if err != nil || l <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid limit parameter"})
+			return
+		}
+		limit = l
+	}
+	// Clamp to max
+	if limit > maxEventsDBLimit {
+		limit = maxEventsDBLimit
+	}
+
+	rows, err := client.Query(limit)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(rows)
 }
 
 type OperatorRequest struct {
@@ -214,6 +252,7 @@ func ListenAndServe(port int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/events", eventsHandler)
+	mux.HandleFunc("/events/db", eventsDBHandler)
 	mux.HandleFunc("/operator/override", operatorOverrideHandler)
 	mux.HandleFunc("/operator/reset", operatorResetHandler)
 	mux.HandleFunc("/game/start", gameStartHandler)
