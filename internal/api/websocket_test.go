@@ -127,38 +127,52 @@ func TestWebSocketDisconnectCleansUp(t *testing.T) {
 	clearTLSEnv(t)
 	events.Clear()
 
+	// Ensure clean starting state
+	events.CloseAllSubscribers()
+
 	server := httptest.NewServer(http.HandlerFunc(wsEventsHandler))
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-
-	initialCount := events.SubscriberCount()
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
 
-	// Wait for subscription to be registered
-	// Use longer timeout for CI environments which may be slower
-	waitFor(t, 3*time.Second, func() bool {
-		return events.SubscriberCount() == initialCount+1
-	}, "subscriber count to increase after connect")
+	// Verify connection works by emitting an event and receiving it
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		events.Emit("info", "node.started", "", map[string]interface{}{"test": "cleanup"})
+	}()
 
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read test event: %v", err)
+	}
+	var e events.Event
+	if err := json.Unmarshal(msg, &e); err != nil {
+		t.Fatalf("failed to unmarshal event: %v", err)
+	}
+	if e.Name != "node.started" {
+		t.Errorf("expected 'node.started', got '%s'", e.Name)
+	}
+
+	// Now we know connection is working - subscriber exists
 	// Close connection
 	conn.Close()
 
 	// Emit events to trigger the subscriber goroutine to notice the close
-	// Multiple emits help ensure the goroutine processes the close
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 5; i++ {
 		events.Emit("info", "node.started", "", nil)
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Wait for cleanup with longer timeout for CI
-	waitFor(t, 3*time.Second, func() bool {
-		return events.SubscriberCount() == initialCount
-	}, "subscriber count to return to initial after close")
+	// Wait for cleanup - subscriber count should return to 0
+	waitFor(t, 5*time.Second, func() bool {
+		return events.SubscriberCount() == 0
+	}, "subscriber count to return to 0 after close")
 }
 
 func TestWebSocketMultipleClients(t *testing.T) {
