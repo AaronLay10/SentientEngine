@@ -100,7 +100,8 @@ func main() {
 			emit("error", "system.error", "failed to restore from events", map[string]interface{}{
 				"error": err.Error(),
 			})
-		} else if state != nil && state.SessionActive {
+		} else if state != nil {
+			// Active session found - restore it
 			if err := rt.ApplyRestoredState(state); err == nil {
 				restored = true
 				orchestrator.EmitStartupRestore(count, roomCfg.Room.ID)
@@ -141,6 +142,16 @@ func main() {
 		})
 		// Continue running without MQTT per requirement
 	}
+
+	// Set up device input subscriber for event topic subscriptions
+	if mqttConnected {
+		deviceSubscriber := mqtt.NewDeviceSubscriber(mqttClient, monitor.DeviceRegistry())
+		monitor.SetSubscriber(deviceSubscriber)
+	}
+
+	// Set up action executor for device commands
+	actionExecutor := orchestrator.NewActionExecutor(mqttClient, monitor.DeviceRegistry(), devCfg)
+	rt.SetActionExecutor(actionExecutor)
 
 	hostname, _ := os.Hostname()
 	emit("info", "system.startup", "orchestrator starting", map[string]interface{}{

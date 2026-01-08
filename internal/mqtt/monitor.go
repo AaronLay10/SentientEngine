@@ -24,6 +24,8 @@ type Monitor struct {
 	tolerance   float64 // multiplier for heartbeat interval (e.g., 2.0 = 2x heartbeat)
 	stopCh      chan struct{}
 	wg          sync.WaitGroup
+	registry    *DeviceRegistry
+	subscriber  *DeviceSubscriber
 }
 
 // NewMonitor creates a new controller monitor.
@@ -37,6 +39,7 @@ func NewMonitor(specs map[string]DeviceSpec, tolerance float64) *Monitor {
 		specs:       specs,
 		tolerance:   tolerance,
 		stopCh:      make(chan struct{}),
+		registry:    NewDeviceRegistry(),
 	}
 }
 
@@ -67,6 +70,26 @@ func (m *Monitor) HandleRegistration(payload *RegistrationPayload) *ValidationRe
 			HeartbeatSec: payload.Controller.HeartbeatSec,
 			Devices:      deviceIDs,
 			Connected:    true,
+		}
+
+		// Update device registry with command topics
+		m.registry.RegisterFromPayload(payload)
+
+		// Subscribe to device event topics if subscriber is set
+		if m.subscriber != nil {
+			for _, dev := range payload.Devices {
+				regDev := m.registry.Get(dev.LogicalID)
+				if regDev != nil {
+					if err := m.subscriber.SubscribeDevice(regDev); err != nil {
+						events.Emit("error", "device.error", "failed to subscribe to device events", map[string]interface{}{
+							"controller_id": ctrlID,
+							"logical_id":    dev.LogicalID,
+							"topic":         regDev.EventTopic,
+							"error":         err.Error(),
+						})
+					}
+				}
+			}
 		}
 
 		// Emit device.connected for each device
@@ -172,4 +195,16 @@ func (m *Monitor) ConnectedControllers() []string {
 		}
 	}
 	return ids
+}
+
+// DeviceRegistry returns the device registry for command topic lookups.
+func (m *Monitor) DeviceRegistry() *DeviceRegistry {
+	return m.registry
+}
+
+// SetSubscriber sets the device subscriber for event topic subscriptions.
+func (m *Monitor) SetSubscriber(subscriber *DeviceSubscriber) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.subscriber = subscriber
 }
