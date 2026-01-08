@@ -13,7 +13,7 @@ type Runtime struct {
 	nodeStates     map[string]*NodeStatus
 	puzzleStates   map[string]*PuzzleStatus
 	puzzleRuntimes map[string]*PuzzleRuntime
-	actionExecutor *ActionExecutor
+	actionExecutor ActionExecutorInterface
 }
 
 // NewRuntime creates a new scene runtime.
@@ -135,6 +135,12 @@ func (r *Runtime) activatePuzzle(node *Node) {
 	}
 
 	pr := NewPuzzleRuntime(subgraph, node.ID)
+
+	// Pass action executor to puzzle runtime so subgraph actions are executed
+	if r.actionExecutor != nil {
+		pr.SetActionFunc(r.actionExecutor.ExecuteAction)
+	}
+
 	r.puzzleRuntimes[node.ID] = pr
 
 	r.emitEvent("puzzle.activated", map[string]interface{}{
@@ -426,6 +432,6 @@ func (r *Runtime) resetState() {
 }
 
 // SetActionExecutor sets the action executor for device commands.
-func (r *Runtime) SetActionExecutor(executor *ActionExecutor) {
+func (r *Runtime) SetActionExecutor(executor ActionExecutorInterface) {
 	r.actionExecutor = executor
 }

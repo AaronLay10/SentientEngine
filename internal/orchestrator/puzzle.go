@@ -4,12 +4,17 @@ import (
 	"github.com/AaronLay10/SentientEngine/internal/events"
 )
 
+// ActionFunc is a function that executes an action node config.
+// Returns an error if execution fails.
+type ActionFunc func(nodeID string, config map[string]interface{}) error
+
 // PuzzleRuntime manages execution of a single puzzle subgraph.
 type PuzzleRuntime struct {
 	subgraph     *Subgraph
 	parentNodeID string
 	nodeStates   map[string]*NodeStatus
 	resolution   PuzzleResolution
+	actionFunc   ActionFunc
 }
 
 // NewPuzzleRuntime creates a new runtime for a puzzle subgraph.
@@ -30,6 +35,11 @@ func NewPuzzleRuntime(subgraph *Subgraph, parentNodeID string) *PuzzleRuntime {
 	}
 
 	return pr
+}
+
+// SetActionFunc sets the function used to execute action nodes.
+func (pr *PuzzleRuntime) SetActionFunc(fn ActionFunc) {
+	pr.actionFunc = fn
 }
 
 // Start begins subgraph execution at the entry node.
@@ -101,9 +111,24 @@ func (pr *PuzzleRuntime) activateNode(nodeID string) {
 
 	status.State = NodeStateActive
 
+	// Emit node.started for action nodes (matches main runtime behavior)
+	if node.Type == "action" {
+		events.Emit("info", "node.started", "", map[string]interface{}{
+			"node_id":     nodeID,
+			"parent_node": pr.parentNodeID,
+			"subgraph_id": pr.subgraph.ID,
+		})
+	}
+
 	switch node.Type {
 	case "action":
-		// Actions complete immediately in MVP
+		// Execute action if we have an executor
+		if pr.actionFunc != nil {
+			if err := pr.actionFunc(nodeID, node.Config); err != nil {
+				// Action failed, but we still complete the node for deterministic flow
+				// Error was already emitted via device.error event by the executor
+			}
+		}
 		pr.completeNode(nodeID)
 		pr.advanceFromNode(nodeID)
 	case "decision":
@@ -116,6 +141,16 @@ func (pr *PuzzleRuntime) activateNode(nodeID string) {
 func (pr *PuzzleRuntime) completeNode(nodeID string) {
 	status := pr.nodeStates[nodeID]
 	status.State = NodeStateCompleted
+
+	// Emit node.completed for action nodes (matches main runtime behavior)
+	node := pr.findNode(nodeID)
+	if node != nil && node.Type == "action" {
+		events.Emit("info", "node.completed", "", map[string]interface{}{
+			"node_id":     nodeID,
+			"parent_node": pr.parentNodeID,
+			"subgraph_id": pr.subgraph.ID,
+		})
+	}
 }
 
 func (pr *PuzzleRuntime) advanceFromNode(nodeID string) {

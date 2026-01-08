@@ -508,3 +508,192 @@ func TestExtractNodeID(t *testing.T) {
 		t.Errorf("expected empty string for nil map, got %s", nodeID)
 	}
 }
+
+// TestBootWithEmptyDB verifies that on boot with no prior events,
+// the runtime remains idle (no scene.started) until /game/start is called.
+func TestBootWithEmptyDB(t *testing.T) {
+	sg, err := LoadSceneGraph("../../design/scene-graph/examples/mvp-scene-graph.v1.json")
+	if err != nil {
+		t.Fatalf("failed to load scene graph: %v", err)
+	}
+
+	// Clear events to start fresh
+	events.Clear()
+
+	// Create runtime (simulates boot)
+	rt := NewRuntime(sg)
+
+	// Simulate restore with no active session (nil client or empty DB)
+	state, _, _ := RestoreFromEvents(nil, "test_room", 100)
+
+	// state should be nil (no active session)
+	if state != nil {
+		t.Error("expected nil state with no prior events")
+	}
+
+	// Runtime should NOT be active (no scene started)
+	if rt.IsGameActive() {
+		t.Error("expected runtime to be idle on boot with empty DB")
+	}
+
+	// Verify NO scene.started event was emitted
+	snapshot := events.Snapshot()
+	for _, e := range snapshot {
+		if e.Name == "scene.started" {
+			t.Error("expected NO scene.started on boot with empty DB - should wait for /game/start")
+		}
+	}
+
+	// Now call StartGame (simulates POST /game/start)
+	if err := rt.StartGame(""); err != nil {
+		t.Fatalf("failed to start game: %v", err)
+	}
+
+	// Now runtime should be active
+	if !rt.IsGameActive() {
+		t.Error("expected runtime to be active after StartGame")
+	}
+
+	// Now scene.started should exist
+	snapshot = events.Snapshot()
+	hasSceneStarted := false
+	for _, e := range snapshot {
+		if e.Name == "scene.started" {
+			hasSceneStarted = true
+			break
+		}
+	}
+	if !hasSceneStarted {
+		t.Error("expected scene.started after StartGame")
+	}
+}
+
+// TestBootWithActiveSession verifies that on boot with an active session in DB,
+// system.startup_restore is emitted but NO fresh scene.started from boot logic.
+func TestBootWithActiveSession(t *testing.T) {
+	sg, err := LoadSceneGraph("../../design/scene-graph/examples/mvp-scene-graph.v1.json")
+	if err != nil {
+		t.Fatalf("failed to load scene graph: %v", err)
+	}
+
+	// Clear events to start fresh
+	events.Clear()
+
+	// Create runtime (simulates boot)
+	rt := NewRuntime(sg)
+
+	// Simulate existing active session from DB
+	// This is what RestoreFromEvents would return if DB had:
+	// - scene.started (scene_id: scene_intro)
+	// - operator.override (node_id: puzzle_scarab)
+	// - NO scene.reset after that
+	restoredState := &RestoredState{
+		SessionActive: true,
+		SceneID:       "scene_intro",
+		PuzzleStates: map[string]PuzzleResolution{
+			"puzzle_scarab": PuzzleOverridden,
+		},
+	}
+
+	// Apply restored state (simulates what main.go does)
+	if err := rt.ApplyRestoredState(restoredState); err != nil {
+		t.Fatalf("failed to apply restored state: %v", err)
+	}
+
+	// Emit startup restore (simulates what main.go does after successful restore)
+	EmitStartupRestore(2, "test_room")
+
+	// Verify runtime IS active (session restored)
+	if !rt.IsGameActive() {
+		t.Error("expected runtime to be active after restore")
+	}
+
+	// Verify puzzle state was restored
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleOverridden {
+		t.Errorf("expected puzzle_scarab to be overridden, got %v", rt.GetPuzzleResolution("puzzle_scarab"))
+	}
+
+	// Check events: should have system.startup_restore but NOT a fresh scene.started
+	snapshot := events.Snapshot()
+	hasStartupRestore := false
+	sceneStartedCount := 0
+
+	for _, e := range snapshot {
+		if e.Name == "system.startup_restore" {
+			hasStartupRestore = true
+		}
+		if e.Name == "scene.started" {
+			sceneStartedCount++
+		}
+	}
+
+	if !hasStartupRestore {
+		t.Error("expected system.startup_restore event")
+	}
+
+	// ApplyRestoredState does NOT emit scene.started - it only restores state
+	// The original scene.started is in the DB (not re-emitted on restore)
+	if sceneStartedCount > 0 {
+		t.Errorf("expected NO fresh scene.started from boot logic, got %d", sceneStartedCount)
+	}
+}
+
+// TestSessionLifecycle verifies the complete session lifecycle:
+// idle -> /game/start -> active -> /game/stop -> idle
+func TestSessionLifecycle(t *testing.T) {
+	sg, err := LoadSceneGraph("../../design/scene-graph/examples/mvp-scene-graph.v1.json")
+	if err != nil {
+		t.Fatalf("failed to load scene graph: %v", err)
+	}
+
+	events.Clear()
+	rt := NewRuntime(sg)
+
+	// Initially idle
+	if rt.IsGameActive() {
+		t.Error("expected runtime to be idle initially")
+	}
+
+	// Start game
+	if err := rt.StartGame("scene_intro"); err != nil {
+		t.Fatalf("StartGame failed: %v", err)
+	}
+
+	if !rt.IsGameActive() {
+		t.Error("expected runtime to be active after StartGame")
+	}
+
+	// Verify scene.started emitted
+	snapshot := events.Snapshot()
+	hasSceneStarted := false
+	for _, e := range snapshot {
+		if e.Name == "scene.started" {
+			hasSceneStarted = true
+		}
+	}
+	if !hasSceneStarted {
+		t.Error("expected scene.started after StartGame")
+	}
+
+	// Stop game
+	if err := rt.StopGame(); err != nil {
+		t.Fatalf("StopGame failed: %v", err)
+	}
+
+	// Should be idle again
+	if rt.IsGameActive() {
+		t.Error("expected runtime to be idle after StopGame")
+	}
+
+	// Verify scene.reset emitted
+	snapshot = events.Snapshot()
+	hasSceneReset := false
+	for _, e := range snapshot {
+		if e.Name == "scene.reset" {
+			hasSceneReset = true
+		}
+	}
+	if !hasSceneReset {
+		t.Error("expected scene.reset after StopGame")
+	}
+}

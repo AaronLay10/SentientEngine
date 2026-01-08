@@ -103,6 +103,28 @@ Prove V7 isolation by running pharaohs and clockwork rooms simultaneously:
 | pharaohs  | 8081  | 1884  | 5433       |
 | clockwork | 8082  | 1885  | 5434       |
 
+## MQTT Broker Ports (Important)
+
+When subscribing to MQTT topics from external tools (mosquitto_sub, MQTT Explorer, etc.), use the correct host port:
+
+| Deployment         | Host MQTT Port | Notes                                           |
+|--------------------|----------------|-------------------------------------------------|
+| Single room        | 1883           | Default single-room deployment                  |
+| Pharaohs two-room  | 1884           | pharaohs room in two-room setup                 |
+| Clockwork two-room | 1885           | clockwork room in two-room setup                |
+
+Example commands:
+```bash
+# Single room - subscribe to device commands
+mosquitto_sub -h localhost -p 1883 -t 'devices/#'
+
+# Pharaohs two-room - subscribe to device commands
+mosquitto_sub -h localhost -p 1884 -t 'devices/#'
+
+# Clockwork two-room - subscribe to device commands
+mosquitto_sub -h localhost -p 1885 -t 'devices/#'
+```
+
 ### Verify Isolation
 
 ```bash
