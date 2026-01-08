@@ -58,12 +58,12 @@
           "entry": "scarab_start",
           "nodes": [
             { "id": "scarab_start", "type": "action", "config": { "action": "puzzle.init", "params": { "id": "scarab" } } },
-            { "id": "scarab_wait", "type": "decision", "config": { "expression": "event == 'puzzle.solved' && puzzle_id == 'scarab'" } },
+            { "id": "scarab_wait", "type": "decision", "config": { "expression": "event == 'device.input' && logical_id == 'crypt_door' && payload.door_closed == true" } },
             { "id": "scarab_done", "type": "terminal", "config": {} }
           ],
           "edges": [
             { "from": "scarab_start", "to": "scarab_wait", "condition": "event == 'node.completed'" },
-            { "from": "scarab_wait", "to": "scarab_done", "condition": "event == 'puzzle.solved' && puzzle_id == 'scarab'" }
+            { "from": "scarab_wait", "to": "scarab_done", "condition": "event == 'device.input' && logical_id == 'crypt_door' && payload.door_closed == true" }
           ],
           "outputs": {
             "resolved_true_event": "puzzle.solved"

@@ -649,3 +649,88 @@ func TestOperatorOverrideStillWorks(t *testing.T) {
 		t.Errorf("expected scene_complete after override, got %v", rt.GetNodeState("scene_complete"))
 	}
 }
+
+// TestTemplateScarabDeviceInput tests the template scene graph's puzzle_scarab
+// which is configured to resolve on device.input from crypt_door with door_closed=true.
+func TestTemplateScarabDeviceInput(t *testing.T) {
+	sg, err := LoadSceneGraph("../../rooms/_template/graphs/scene-graph.v1.json")
+	if err != nil {
+		t.Fatalf("failed to load template scene graph: %v", err)
+	}
+
+	rt := NewRuntime(sg)
+
+	// Start the intro scene
+	if err := rt.StartScene("scene_intro"); err != nil {
+		t.Fatalf("failed to start scene: %v", err)
+	}
+
+	// Verify puzzle_scarab is active and unresolved
+	if rt.GetNodeState("puzzle_scarab") != NodeStateActive {
+		t.Errorf("expected puzzle_scarab to be active, got %v", rt.GetNodeState("puzzle_scarab"))
+	}
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleUnresolved {
+		t.Error("expected puzzle_scarab to be unresolved initially")
+	}
+
+	// Send device.input from wrong device - should NOT resolve
+	rt.InjectEvent("device.input", map[string]interface{}{
+		"controller_id": "ctrl-001",
+		"logical_id":    "other_device",
+		"topic":         "devices/ctrl-001/other_device/events",
+		"payload": map[string]interface{}{
+			"door_closed": true,
+		},
+	})
+
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleUnresolved {
+		t.Error("expected puzzle_scarab to remain unresolved for wrong device")
+	}
+
+	// Send device.input from crypt_door but with door_closed=false - should NOT resolve
+	rt.InjectEvent("device.input", map[string]interface{}{
+		"controller_id": "ctrl-001",
+		"logical_id":    "crypt_door",
+		"topic":         "devices/ctrl-001/crypt_door/events",
+		"payload": map[string]interface{}{
+			"door_closed": false,
+		},
+	})
+
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleUnresolved {
+		t.Error("expected puzzle_scarab to remain unresolved for door_closed=false")
+	}
+
+	// Send correct device.input - should resolve the puzzle
+	rt.InjectEvent("device.input", map[string]interface{}{
+		"controller_id": "ctrl-001",
+		"logical_id":    "crypt_door",
+		"topic":         "devices/ctrl-001/crypt_door/events",
+		"payload": map[string]interface{}{
+			"door_closed": true,
+		},
+	})
+
+	// Verify puzzle_scarab is now solved
+	if rt.GetPuzzleResolution("puzzle_scarab") != PuzzleSolved {
+		t.Errorf("expected puzzle_scarab to be solved, got %v", rt.GetPuzzleResolution("puzzle_scarab"))
+	}
+	if rt.GetNodeState("puzzle_scarab") != NodeStateCompleted {
+		t.Errorf("expected puzzle_scarab node to be completed, got %v", rt.GetNodeState("puzzle_scarab"))
+	}
+
+	// Verify puzzle.solved event was emitted
+	snapshot := events.Snapshot()
+	hasPuzzleSolved := false
+	for _, e := range snapshot {
+		if e.Name == "puzzle.solved" {
+			if puzzleID, ok := e.Fields["puzzle_id"].(string); ok && puzzleID == "puzzle_scarab" {
+				hasPuzzleSolved = true
+				break
+			}
+		}
+	}
+	if !hasPuzzleSolved {
+		t.Error("expected puzzle.solved event for puzzle_scarab")
+	}
+}
