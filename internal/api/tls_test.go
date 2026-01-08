@@ -1,7 +1,10 @@
 package api
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +94,115 @@ func TestLoadTLSConfig_InvalidFiles(t *testing.T) {
 	cfg := LoadTLSConfig()
 	if cfg != nil {
 		t.Error("LoadTLSConfig should return nil when cert files don't exist")
+	}
+}
+
+func TestRedirectServer_HealthNoRedirect(t *testing.T) {
+	srv := NewRedirectServer(8080, 8523) // 8080 + 443 = 8523
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	req.Host = "localhost:8080"
+	w := httptest.NewRecorder()
+
+	srv.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("/health should return 200, got %d", w.Code)
+	}
+
+	// Should not have Location header (no redirect)
+	if loc := w.Header().Get("Location"); loc != "" {
+		t.Errorf("/health should not redirect, got Location: %s", loc)
+	}
+}
+
+func TestRedirectServer_ReadyNoRedirect(t *testing.T) {
+	// Set orchestrator ready for test
+	SetOrchestratorReady(true)
+	SetMQTTState(true, false)
+	SetPostgresState(true, false)
+	defer func() {
+		SetOrchestratorReady(false)
+		SetMQTTState(false, true)
+		SetPostgresState(false, true)
+	}()
+
+	srv := NewRedirectServer(8080, 8523) // 8080 + 443 = 8523
+
+	req := httptest.NewRequest("GET", "/ready", nil)
+	req.Host = "localhost:8080"
+	w := httptest.NewRecorder()
+
+	srv.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("/ready should return 200, got %d", w.Code)
+	}
+
+	if loc := w.Header().Get("Location"); loc != "" {
+		t.Errorf("/ready should not redirect, got Location: %s", loc)
+	}
+}
+
+func TestRedirectServer_UIRedirects(t *testing.T) {
+	srv := NewRedirectServer(8080, 8523) // 8080 + 443 = 8523
+
+	req := httptest.NewRequest("GET", "/ui", nil)
+	req.Host = "localhost:8080"
+	w := httptest.NewRecorder()
+
+	srv.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Errorf("/ui should return 301, got %d", w.Code)
+	}
+
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "https://") {
+		t.Errorf("Location should start with https://, got %s", loc)
+	}
+	if !strings.Contains(loc, ":8523") {
+		t.Errorf("Location should contain :8523, got %s", loc)
+	}
+	if !strings.HasSuffix(loc, "/ui") {
+		t.Errorf("Location should end with /ui, got %s", loc)
+	}
+}
+
+func TestRedirectServer_PreservesQueryString(t *testing.T) {
+	srv := NewRedirectServer(8080, 8523) // 8080 + 443 = 8523
+
+	req := httptest.NewRequest("GET", "/events?limit=100", nil)
+	req.Host = "localhost:8080"
+	w := httptest.NewRecorder()
+
+	srv.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Errorf("should return 301, got %d", w.Code)
+	}
+
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "?limit=100") {
+		t.Errorf("Location should preserve query string, got %s", loc)
+	}
+}
+
+func TestRedirectServer_WSEventsRedirects(t *testing.T) {
+	srv := NewRedirectServer(8080, 8523) // 8080 + 443 = 8523
+
+	req := httptest.NewRequest("GET", "/ws/events", nil)
+	req.Host = "localhost:8080"
+	w := httptest.NewRecorder()
+
+	srv.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Errorf("/ws/events should return 301, got %d", w.Code)
+	}
+
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "https://") {
+		t.Errorf("Location should start with https://, got %s", loc)
 	}
 }
