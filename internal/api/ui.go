@@ -37,6 +37,26 @@ const operatorUIHTML = `<!DOCTYPE html>
         #status.connected { background: #1b4332; color: #95d5b2; }
         #status.disconnected { background: #7f1d1d; color: #fca5a5; }
         #status.connecting { background: #78350f; color: #fcd34d; }
+        .health-indicators {
+            display: flex;
+            gap: 8px;
+            margin-left: 16px;
+        }
+        .health-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6b7280;
+        }
+        .health-dot.ok { background: #22c55e; }
+        .health-dot.err { background: #ef4444; }
+        .health-label {
+            font-size: 11px;
+            color: #9ca3af;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
         main {
             flex: 1;
             overflow: hidden;
@@ -141,6 +161,14 @@ const operatorUIHTML = `<!DOCTYPE html>
         .control-group input.small {
             width: 100px;
         }
+        .control-group input.filter {
+            width: 180px;
+        }
+        .filter-info {
+            font-size: 11px;
+            color: #6b7280;
+        }
+        .event.filtered { display: none; }
         .divider {
             width: 1px;
             height: 24px;
@@ -168,7 +196,13 @@ const operatorUIHTML = `<!DOCTYPE html>
 <body>
     <header>
         <h1>Sentient Engine - Event Stream</h1>
-        <span id="status" class="disconnected">Disconnected</span>
+        <div style="display:flex;align-items:center;">
+            <div class="health-indicators">
+                <span class="health-label"><span id="mqttDot" class="health-dot"></span>MQTT</span>
+                <span class="health-label"><span id="pgDot" class="health-dot"></span>PG</span>
+            </div>
+            <span id="status" class="disconnected">Disconnected</span>
+        </div>
     </header>
     <div class="controls">
         <div class="control-group">
@@ -182,6 +216,12 @@ const operatorUIHTML = `<!DOCTYPE html>
             <label>Reset to Node:</label>
             <input type="text" id="nodeId" placeholder="e.g. puzzle_scarab">
             <button id="resetBtn" onclick="resetToNode()">Reset</button>
+        </div>
+        <div class="divider"></div>
+        <div class="control-group">
+            <label>Filter:</label>
+            <input type="text" id="filterInput" class="filter" placeholder="event name, scope, or level">
+            <span id="filterInfo" class="filter-info"></span>
         </div>
         <span id="result"></span>
     </div>
@@ -199,6 +239,7 @@ const operatorUIHTML = `<!DOCTYPE html>
         let eventCount = 0;
         let ws = null;
         let reconnectTimer = null;
+        let currentFilter = '';
 
         function formatTime(ts) {
             try {
@@ -232,12 +273,23 @@ const operatorUIHTML = `<!DOCTYPE html>
                 (idText ? '<span class="id">' + idText + '</span>' : '') +
                 (e.msg ? '<span class="msg">' + e.msg + '</span>' : '');
 
+            // Apply current filter to new event
+            if (currentFilter) {
+                const text = div.textContent.toLowerCase();
+                const classes = div.className.toLowerCase();
+                if (!text.includes(currentFilter) && !classes.includes(currentFilter)) {
+                    div.classList.add('filtered');
+                }
+            }
+
             eventsDiv.appendChild(div);
             eventCount++;
             countEl.textContent = eventCount;
 
-            // Auto-scroll to bottom
-            eventsDiv.scrollTop = eventsDiv.scrollHeight;
+            // Auto-scroll to bottom (only if not filtered)
+            if (!div.classList.contains('filtered')) {
+                eventsDiv.scrollTop = eventsDiv.scrollHeight;
+            }
 
             // Limit displayed events to prevent memory issues
             while (eventsDiv.children.length > 500) {
@@ -406,6 +458,57 @@ const operatorUIHTML = `<!DOCTYPE html>
         sceneIdInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') startGame();
         });
+
+        // Event filter functionality
+        const filterInput = document.getElementById('filterInput');
+        const filterInfo = document.getElementById('filterInfo');
+
+        function applyFilter() {
+            currentFilter = filterInput.value.toLowerCase().trim();
+            const events = eventsDiv.querySelectorAll('.event');
+            let shown = 0, hidden = 0;
+
+            events.forEach(function(el) {
+                const text = el.textContent.toLowerCase();
+                const classes = el.className.toLowerCase();
+                if (!currentFilter || text.includes(currentFilter) || classes.includes(currentFilter)) {
+                    el.classList.remove('filtered');
+                    shown++;
+                } else {
+                    el.classList.add('filtered');
+                    hidden++;
+                }
+            });
+
+            if (currentFilter && hidden > 0) {
+                filterInfo.textContent = shown + ' shown, ' + hidden + ' hidden';
+            } else {
+                filterInfo.textContent = '';
+            }
+        }
+
+        filterInput.addEventListener('input', applyFilter);
+
+        // Health indicators
+        const mqttDot = document.getElementById('mqttDot');
+        const pgDot = document.getElementById('pgDot');
+
+        function updateHealth() {
+            fetch('/ready')
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    mqttDot.className = 'health-dot ' + (data.mqtt && data.mqtt.status === 'ok' ? 'ok' : 'err');
+                    pgDot.className = 'health-dot ' + (data.postgres && data.postgres.status === 'ok' ? 'ok' : 'err');
+                })
+                .catch(function() {
+                    mqttDot.className = 'health-dot err';
+                    pgDot.className = 'health-dot err';
+                });
+        }
+
+        // Poll health every 10 seconds
+        updateHealth();
+        setInterval(updateHealth, 10000);
     </script>
 </body>
 </html>`
