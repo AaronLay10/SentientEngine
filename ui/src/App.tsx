@@ -4,6 +4,7 @@ import { ControllersPage } from '@/pages/ControllersPage';
 import { PowerPage } from '@/pages/PowerPage';
 import { MonitorPage } from '@/pages/MonitorPage';
 import { SceneEditorPage } from '@/pages/SceneEditorPage';
+import { PuzzleEditorPage } from '@/pages/PuzzleEditorPage';
 import { useWebSocket, useHealthPolling, useAlertAudio } from '@/hooks';
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
         <Route index element={<Navigate to="/monitor" replace />} />
         <Route path="/monitor" element={<MonitorPage />} />
         <Route path="/scene-editor" element={<SceneEditorPage />} />
+        <Route path="/puzzle-editor" element={<PuzzleEditorPage />} />
         <Route path="/controllers" element={<ControllersPage />} />
         <Route path="/power" element={<PowerPage />} />
       </Route>

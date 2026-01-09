@@ -22,6 +22,9 @@ interface AuthState {
   canViewSceneEditor: () => boolean;
   canEditScenes: () => boolean;
   canEditScenesLive: () => boolean;
+  canViewPuzzleEditor: () => boolean;
+  canEditPuzzles: () => boolean;
+  canEditPuzzlesLive: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -97,6 +100,24 @@ export const useAuthStore = create<AuthState>()(
         const { role } = get();
         if (!role) return false;
         return ROLE_PERMISSIONS[role].canEditScenesLive;
+      },
+
+      canViewPuzzleEditor: () => {
+        const { role } = get();
+        if (!role) return true; // Default allow in dev mode
+        return ROLE_PERMISSIONS[role].canViewPuzzleEditor;
+      },
+
+      canEditPuzzles: () => {
+        const { role } = get();
+        if (!role) return true; // Default allow in dev mode
+        return ROLE_PERMISSIONS[role].canEditPuzzles;
+      },
+
+      canEditPuzzlesLive: () => {
+        const { role } = get();
+        if (!role) return false;
+        return ROLE_PERMISSIONS[role].canEditPuzzlesLive;
       },
     }),
     {

@@ -51,7 +51,19 @@ export type EventName =
   | 'scene.node_activated'
   | 'scene.node_completed'
   | 'scene.node_error'
-  | 'scene.wire_activated';
+  | 'scene.wire_activated'
+  // Puzzle execution events (backend authoritative)
+  | 'puzzle.node_activated'
+  | 'puzzle.node_completed'
+  | 'puzzle.node_error'
+  | 'puzzle.wire_activated'
+  | 'puzzle.live_value'
+  | 'puzzle.internal_state'
+  | 'puzzle.outcome_reached'
+  | 'puzzle.reset'
+  | 'puzzle.paused'
+  | 'puzzle.resumed'
+  | 'puzzle.step';
 
 /**
  * Event field types for type-safe access

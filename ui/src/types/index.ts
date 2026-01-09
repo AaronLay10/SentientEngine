@@ -5,3 +5,4 @@ export * from './power';
 export * from './api';
 export * from './room';
 export * from './scene';
+export * from './puzzle';
