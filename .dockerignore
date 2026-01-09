@@ -1,0 +1,30 @@
+# Node modules and UI build artifacts
+ui/node_modules
+ui/dist
+internal/api/ui-dist
+
+# Go build cache
+.go
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Test artifacts
+coverage
+*.test
+*.out
+
+# Temp files
+tmp
+*.tmp
+*.log
+
+# Docker
+.docker

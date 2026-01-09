@@ -1,0 +1,68 @@
+import { NavLink } from 'react-router-dom';
+import { Cpu, Power } from 'lucide-react';
+import { useAuthStore } from '@/state';
+import { Tooltip } from '@/components/shared/Tooltip';
+
+interface NavItemProps {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  disabled?: boolean;
+  disabledReason?: string;
+}
+
+function NavItem({ to, icon, label, disabled, disabledReason }: NavItemProps) {
+  if (disabled) {
+    return (
+      <Tooltip content={disabledReason ?? 'Access restricted'}>
+        <span className="flex cursor-not-allowed items-center gap-2 rounded px-3 py-1.5 text-sm text-zinc-600">
+          {icon}
+          {label}
+        </span>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        `flex items-center gap-2 rounded px-3 py-1.5 text-sm transition-colors ${
+          isActive
+            ? 'bg-zinc-800 text-zinc-100'
+            : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+        }`
+      }
+    >
+      {icon}
+      {label}
+    </NavLink>
+  );
+}
+
+export function Navigation() {
+  const permissions = useAuthStore((s) => s.getPermissions());
+
+  // Default to full access if not authenticated (dev mode)
+  const canViewControllers = permissions?.canViewControllers ?? true;
+  const canViewPower = permissions?.canViewPower ?? true;
+
+  return (
+    <nav className="flex items-center gap-1">
+      <NavItem
+        to="/controllers"
+        icon={<Cpu className="h-4 w-4" />}
+        label="Controllers"
+        disabled={!canViewControllers}
+        disabledReason="You do not have permission to view Controllers"
+      />
+      <NavItem
+        to="/power"
+        icon={<Power className="h-4 w-4" />}
+        label="Power"
+        disabled={!canViewPower}
+        disabledReason="You do not have permission to view Power"
+      />
+    </nav>
+  );
+}

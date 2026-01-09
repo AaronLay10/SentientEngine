@@ -2,3 +2,12 @@
 # build artifacts
 /api
 /orchestrator
+
+# UI
+ui/node_modules
+internal/api/ui-dist
+
+# IDE
+.idea
+.vscode
+*.swp
