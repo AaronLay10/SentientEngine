@@ -1,4 +1,4 @@
-type Status = 'online' | 'offline' | 'pending' | 'error';
+type Status = 'online' | 'offline' | 'pending' | 'error' | 'unknown';
 
 interface StatusIndicatorProps {
   label: string;
@@ -11,6 +11,7 @@ const STATUS_COLORS: Record<Status, string> = {
   offline: 'bg-offline',
   pending: 'bg-pending animate-pulse',
   error: 'bg-error',
+  unknown: 'bg-zinc-600',
 };
 
 export function StatusIndicator({ label, status, title }: StatusIndicatorProps) {
