@@ -11,3 +11,7 @@ internal/api/ui-dist
 .idea
 .vscode
 *.swp
+
+# UI build/cache
+ui/*.tsbuildinfo
+ui/vite.config.*
