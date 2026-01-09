@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Cpu, Power, Activity } from 'lucide-react';
+import { Cpu, Power, Activity, GitBranch } from 'lucide-react';
 import { useAuthStore } from '@/state';
 import { Tooltip } from '@/components/shared/Tooltip';
 
@@ -45,6 +45,7 @@ export function Navigation() {
 
   // Default to full access if not authenticated (dev mode)
   const canViewMonitor = permissions?.canViewMonitor ?? true;
+  const canViewSceneEditor = permissions?.canViewSceneEditor ?? true;
   const canViewControllers = permissions?.canViewControllers ?? true;
   const canViewPower = permissions?.canViewPower ?? true;
 
@@ -56,6 +57,13 @@ export function Navigation() {
         label="Monitor"
         disabled={!canViewMonitor}
         disabledReason="You do not have permission to view Monitor"
+      />
+      <NavItem
+        to="/scene-editor"
+        icon={<GitBranch className="h-4 w-4" />}
+        label="Scene Editor"
+        disabled={!canViewSceneEditor}
+        disabledReason="You do not have permission to view Scene Editor"
       />
       <NavItem
         to="/controllers"

@@ -23,6 +23,9 @@ export interface RolePermissions {
   canBulkPower: boolean;
   canViewMonitor: boolean;
   canControlSession: boolean; // start/stop/pause/resume
+  canViewSceneEditor: boolean;
+  canEditScenes: boolean; // Edit when session inactive
+  canEditScenesLive: boolean; // Edit during active session (queued)
 }
 
 export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
@@ -34,6 +37,9 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canBulkPower: true,
     canViewMonitor: true,
     canControlSession: true,
+    canViewSceneEditor: true,
+    canEditScenes: true,
+    canEditScenesLive: true, // Directors can edit during live session
   },
   creative_director: {
     canViewControllers: true,
@@ -43,6 +49,9 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canBulkPower: true,
     canViewMonitor: true,
     canControlSession: true,
+    canViewSceneEditor: true,
+    canEditScenes: true,
+    canEditScenesLive: true, // Directors can edit during live session
   },
   technical_team: {
     canViewControllers: true,
@@ -52,6 +61,9 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canBulkPower: true,
     canViewMonitor: true,
     canControlSession: false,
+    canViewSceneEditor: true,
+    canEditScenes: true,
+    canEditScenesLive: false, // Cannot edit during live session
   },
   creative_team: {
     canViewControllers: true,
@@ -61,6 +73,9 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canBulkPower: false,
     canViewMonitor: true,
     canControlSession: false,
+    canViewSceneEditor: true,
+    canEditScenes: true,
+    canEditScenesLive: false,
   },
   building_team: {
     canViewControllers: true,
@@ -70,6 +85,9 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canBulkPower: true,
     canViewMonitor: true,
     canControlSession: false,
+    canViewSceneEditor: true,
+    canEditScenes: true,
+    canEditScenesLive: false,
   },
   view_only: {
     canViewControllers: true,
@@ -79,5 +97,8 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canBulkPower: false,
     canViewMonitor: true,
     canControlSession: false,
+    canViewSceneEditor: true,
+    canEditScenes: false,
+    canEditScenesLive: false,
   },
 };

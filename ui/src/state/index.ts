@@ -6,3 +6,4 @@ export { useAlertsStore } from './alerts';
 export { useSearchStore } from './search';
 export { useRoomStore } from './room';
 export { useEventStreamStore } from './eventStream';
+export { useSceneEditorStore } from './sceneEditor';

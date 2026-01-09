@@ -46,7 +46,12 @@ export type EventName =
   | 'session.paused'
   | 'session.resumed'
   | 'session.stopped'
-  | 'session.faulted';
+  | 'session.faulted'
+  // Scene execution events (backend authoritative)
+  | 'scene.node_activated'
+  | 'scene.node_completed'
+  | 'scene.node_error'
+  | 'scene.wire_activated';
 
 /**
  * Event field types for type-safe access

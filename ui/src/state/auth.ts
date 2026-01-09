@@ -19,6 +19,9 @@ interface AuthState {
   canBulkPower: () => boolean;
   canViewMonitor: () => boolean;
   canControlSession: () => boolean;
+  canViewSceneEditor: () => boolean;
+  canEditScenes: () => boolean;
+  canEditScenesLive: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -76,6 +79,24 @@ export const useAuthStore = create<AuthState>()(
         const { role } = get();
         if (!role) return false;
         return ROLE_PERMISSIONS[role].canControlSession;
+      },
+
+      canViewSceneEditor: () => {
+        const { role } = get();
+        if (!role) return true; // Default allow in dev mode
+        return ROLE_PERMISSIONS[role].canViewSceneEditor;
+      },
+
+      canEditScenes: () => {
+        const { role } = get();
+        if (!role) return true; // Default allow in dev mode
+        return ROLE_PERMISSIONS[role].canEditScenes;
+      },
+
+      canEditScenesLive: () => {
+        const { role } = get();
+        if (!role) return false;
+        return ROLE_PERMISSIONS[role].canEditScenesLive;
       },
     }),
     {
