@@ -1,6 +1,13 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { getWebSocketManager, getApiClient } from '@/api';
-import { useConnectionStore, useControllersStore, usePowerStore, useAlertsStore } from '@/state';
+import {
+  useConnectionStore,
+  useControllersStore,
+  usePowerStore,
+  useAlertsStore,
+  useRoomStore,
+  useEventStreamStore,
+} from '@/state';
 import type { WSEvent } from '@/types';
 
 /**
@@ -24,6 +31,9 @@ export function useWebSocket(): void {
   const loadPowerFromSnapshot = usePowerStore((s) => s.loadFromSnapshot);
 
   const handleAlertEvent = useAlertsStore((s) => s.handleEvent);
+
+  const handleRoomEvent = useRoomStore((s) => s.handleEvent);
+  const addEventToStream = useEventStreamStore((s) => s.addEvent);
 
   const wsRef = useRef(getWebSocketManager());
   const apiRef = useRef(getApiClient());
@@ -67,6 +77,9 @@ export function useWebSocket(): void {
       // Update metrics
       updateEventMetrics(ws.getLastEventTimestamp(), ws.getEventRate());
 
+      // Add all events to the stream for monitor display
+      addEventToStream(event);
+
       const eventName = event.event;
 
       // Controller events - all status FROM BACKEND
@@ -90,12 +103,22 @@ export function useWebSocket(): void {
         handleAlertEvent(event);
       }
 
-      // Session events - FROM BACKEND
-      if (eventName === 'game.started') {
+      // Room/Session events - FROM BACKEND
+      if (
+        eventName.startsWith('room.') ||
+        eventName.startsWith('session.') ||
+        eventName === 'game.started' ||
+        eventName === 'game.stopped'
+      ) {
+        handleRoomEvent(event);
+      }
+
+      // Legacy session state sync for connection store
+      if (eventName === 'game.started' || eventName === 'session.started') {
         const sceneId = event.fields.scene_id as string | undefined;
         setSessionState(true, sceneId ?? null);
       }
-      if (eventName === 'game.stopped') {
+      if (eventName === 'game.stopped' || eventName === 'session.stopped') {
         setSessionState(false, null);
       }
     });
@@ -116,6 +139,8 @@ export function useWebSocket(): void {
     handleControllerEvent,
     handlePowerEvent,
     handleAlertEvent,
+    handleRoomEvent,
+    addEventToStream,
     fetchInitialState,
   ]);
 }

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Cpu, Power } from 'lucide-react';
+import { Cpu, Power, Activity } from 'lucide-react';
 import { useAuthStore } from '@/state';
 import { Tooltip } from '@/components/shared/Tooltip';
 
@@ -44,11 +44,19 @@ export function Navigation() {
   const permissions = useAuthStore((s) => s.getPermissions());
 
   // Default to full access if not authenticated (dev mode)
+  const canViewMonitor = permissions?.canViewMonitor ?? true;
   const canViewControllers = permissions?.canViewControllers ?? true;
   const canViewPower = permissions?.canViewPower ?? true;
 
   return (
     <nav className="flex items-center gap-1">
+      <NavItem
+        to="/monitor"
+        icon={<Activity className="h-4 w-4" />}
+        label="Monitor"
+        disabled={!canViewMonitor}
+        disabledReason="You do not have permission to view Monitor"
+      />
       <NavItem
         to="/controllers"
         icon={<Cpu className="h-4 w-4" />}

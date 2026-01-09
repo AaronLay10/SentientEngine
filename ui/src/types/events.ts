@@ -37,9 +37,16 @@ export type EventName =
   | 'system.startup'
   | 'system.shutdown'
   | 'system.error'
-  // Session events
+  // Session events (legacy)
   | 'game.started'
-  | 'game.stopped';
+  | 'game.stopped'
+  // Room/Session events (backend authoritative)
+  | 'room.state_changed'
+  | 'session.started'
+  | 'session.paused'
+  | 'session.resumed'
+  | 'session.stopped'
+  | 'session.faulted';
 
 /**
  * Event field types for type-safe access

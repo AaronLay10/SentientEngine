@@ -21,6 +21,8 @@ export interface RolePermissions {
   canViewPower: boolean;
   canTogglePower: boolean;
   canBulkPower: boolean;
+  canViewMonitor: boolean;
+  canControlSession: boolean; // start/stop/pause/resume
 }
 
 export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
@@ -30,6 +32,8 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canViewPower: true,
     canTogglePower: true,
     canBulkPower: true,
+    canViewMonitor: true,
+    canControlSession: true,
   },
   creative_director: {
     canViewControllers: true,
@@ -37,6 +41,8 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canViewPower: true,
     canTogglePower: true,
     canBulkPower: true,
+    canViewMonitor: true,
+    canControlSession: true,
   },
   technical_team: {
     canViewControllers: true,
@@ -44,6 +50,8 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canViewPower: true,
     canTogglePower: true,
     canBulkPower: true,
+    canViewMonitor: true,
+    canControlSession: false,
   },
   creative_team: {
     canViewControllers: true,
@@ -51,6 +59,8 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canViewPower: true,
     canTogglePower: false,
     canBulkPower: false,
+    canViewMonitor: true,
+    canControlSession: false,
   },
   building_team: {
     canViewControllers: true,
@@ -58,6 +68,8 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canViewPower: true,
     canTogglePower: true,
     canBulkPower: true,
+    canViewMonitor: true,
+    canControlSession: false,
   },
   view_only: {
     canViewControllers: true,
@@ -65,5 +77,7 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
     canViewPower: true,
     canTogglePower: false,
     canBulkPower: false,
+    canViewMonitor: true,
+    canControlSession: false,
   },
 };

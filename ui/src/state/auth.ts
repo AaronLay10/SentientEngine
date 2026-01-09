@@ -17,6 +17,8 @@ interface AuthState {
   canExecuteDeviceActions: () => boolean;
   canTogglePower: () => boolean;
   canBulkPower: () => boolean;
+  canViewMonitor: () => boolean;
+  canControlSession: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -62,6 +64,18 @@ export const useAuthStore = create<AuthState>()(
         const { role } = get();
         if (!role) return false;
         return ROLE_PERMISSIONS[role].canBulkPower;
+      },
+
+      canViewMonitor: () => {
+        const { role } = get();
+        if (!role) return true; // Default allow in dev mode
+        return ROLE_PERMISSIONS[role].canViewMonitor;
+      },
+
+      canControlSession: () => {
+        const { role } = get();
+        if (!role) return false;
+        return ROLE_PERMISSIONS[role].canControlSession;
       },
     }),
     {

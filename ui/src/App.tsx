@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { ControllersPage } from '@/pages/ControllersPage';
 import { PowerPage } from '@/pages/PowerPage';
+import { MonitorPage } from '@/pages/MonitorPage';
 import { useWebSocket, useHealthPolling, useAlertAudio } from '@/hooks';
 
 export default function App() {
@@ -17,7 +18,8 @@ export default function App() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route index element={<Navigate to="/controllers" replace />} />
+        <Route index element={<Navigate to="/monitor" replace />} />
+        <Route path="/monitor" element={<MonitorPage />} />
         <Route path="/controllers" element={<ControllersPage />} />
         <Route path="/power" element={<PowerPage />} />
       </Route>
